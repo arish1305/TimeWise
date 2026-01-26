@@ -6,8 +6,8 @@ pip install -r backend/requirements.txt
 Write-Host "Installing AI Engine Dependencies..."
 pip install -r ai_engine/requirements.txt
 
-# 2. Configure Environment for SQLite
-$env:DATABASE_URL = "sqlite:///./timewise.db"
+# 2. Configure Environment for PostgreSQL
+$env:DATABASE_URL = "postgresql://admin:password@localhost:5432/timewise"
 $env:AI_ENGINE_URL = "http://localhost:8001"
 $env:PYTHONPATH = "."
 

@@ -115,6 +115,7 @@ class FacultySubjectAssignment(Base):
     faculty_id = Column(Integer, ForeignKey("faculty.id"))
     subject_id = Column(Integer, ForeignKey("subjects.id"))
     preference_level = Column(Integer, default=1) # 1=High, 5=Low
+    section_ids = Column(JSON, nullable=True) # List of section IDs this faculty teaches for this subject
     
     faculty = relationship("Faculty", back_populates="qualified_subjects")
     subject = relationship("Subject", back_populates="eligible_faculty")

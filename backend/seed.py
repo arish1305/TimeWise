@@ -140,23 +140,118 @@ def seed():
             weekly_hours=4
         )
         db.add(db_sys)
-        db.commit()
+    
+    # CS103 - Operating Systems
+    os_sub = db.query(Subject).filter(Subject.code == "CS103").first()
+    if not os_sub:
+        os_sub = Subject(
+            name="Operating Systems",
+            code="CS103",
+            department_id=cse.id,
+            semester=3,
+            weekly_hours=4
+        )
+        db.add(os_sub)
+    
+    # CS104 - Computer Networks
+    cn_sub = db.query(Subject).filter(Subject.code == "CS104").first()
+    if not cn_sub:
+        cn_sub = Subject(
+            name="Computer Networks",
+            code="CS104",
+            department_id=cse.id,
+            semester=3,
+            weekly_hours=3
+        )
+        db.add(cn_sub)
+    
+    # CS105 - Software Engineering
+    se_sub = db.query(Subject).filter(Subject.code == "CS105").first()
+    if not se_sub:
+        se_sub = Subject(
+            name="Software Engineering",
+            code="CS105",
+            department_id=cse.id,
+            semester=3,
+            weekly_hours=3
+        )
+        db.add(se_sub)
+    
+    # CS106 - Web Technologies
+    wt_sub = db.query(Subject).filter(Subject.code == "CS106").first()
+    if not wt_sub:
+        wt_sub = Subject(
+            name="Web Technologies",
+            code="CS106",
+            department_id=cse.id,
+            semester=3,
+            weekly_hours=3
+        )
+        db.add(wt_sub)
+        
+    db.commit()
 
-    # Faculty Assignments
+    # Faculty Assignments with Section Assignments
     f_smith = db.query(Faculty).filter(Faculty.name == "Dr. Smith").first()
     f_johnson = db.query(Faculty).filter(Faculty.name == "Prof. Johnson").first()
     
     # Reload subjects to get IDs if newly created
     dsa = db.query(Subject).filter(Subject.code == "CS101").first()
     db_sys = db.query(Subject).filter(Subject.code == "CS102").first()
+    os_sub = db.query(Subject).filter(Subject.code == "CS103").first()
+    cn_sub = db.query(Subject).filter(Subject.code == "CS104").first()
+    se_sub = db.query(Subject).filter(Subject.code == "CS105").first()
+    wt_sub = db.query(Subject).filter(Subject.code == "CS106").first()
+    
+    # Get sections for assignment
+    sec_a = db.query(Section).filter(Section.name == "A").first()
+    sec_b = db.query(Section).filter(Section.name == "B").first()
 
-    if f_smith and dsa:
-        if not db.query(FacultySubjectAssignment).filter_by(faculty_id=f_smith.id, subject_id=dsa.id).first():
-            db.add(FacultySubjectAssignment(faculty_id=f_smith.id, subject_id=dsa.id))
+    # Clear old assignments to avoid duplicates
+    db.query(FacultySubjectAssignment).delete()
+    db.commit()
+
+    # Dr. Smith teaches multiple subjects to all sections
+    if f_smith:
+        if dsa:
+            db.add(FacultySubjectAssignment(
+                faculty_id=f_smith.id, 
+                subject_id=dsa.id,
+                section_ids=None  # Available for all sections
+            ))
+        if os_sub:
+            db.add(FacultySubjectAssignment(
+                faculty_id=f_smith.id, 
+                subject_id=os_sub.id,
+                section_ids=None
+            ))
+        if se_sub:
+            db.add(FacultySubjectAssignment(
+                faculty_id=f_smith.id, 
+                subject_id=se_sub.id,
+                section_ids=None
+            ))
             
-    if f_johnson and db_sys:
-        if not db.query(FacultySubjectAssignment).filter_by(faculty_id=f_johnson.id, subject_id=db_sys.id).first():
-            db.add(FacultySubjectAssignment(faculty_id=f_johnson.id, subject_id=db_sys.id))
+    # Prof. Johnson teaches different subjects
+    if f_johnson:
+        if db_sys:
+            db.add(FacultySubjectAssignment(
+                faculty_id=f_johnson.id, 
+                subject_id=db_sys.id,
+                section_ids=None
+            ))
+        if cn_sub:
+            db.add(FacultySubjectAssignment(
+                faculty_id=f_johnson.id, 
+                subject_id=cn_sub.id,
+                section_ids=None
+            ))
+        if wt_sub:
+            db.add(FacultySubjectAssignment(
+                faculty_id=f_johnson.id, 
+                subject_id=wt_sub.id,
+                section_ids=None
+            ))
             
     db.commit()
     db.close()

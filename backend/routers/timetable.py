@@ -83,15 +83,25 @@ def generate_timetable(request: schemas.GenerateTimetableRequest, db: Session = 
     for subject in alloc_subjects:
         hours_needed = subject.weekly_hours
         
-        # Get assigned faculty
+        # Get assigned faculty for this section
         eligible_assignments = db.query(models.FacultySubjectAssignment).filter(
             models.FacultySubjectAssignment.subject_id == subject.id
         ).all()
         
+        # Filter by section assignment
+        section_eligible = []
+        for assignment in eligible_assignments:
+            # If section_ids is None or empty, faculty is available for all sections
+            # Otherwise, check if current section is in the assigned sections
+            if assignment.section_ids is None or not assignment.section_ids:
+                section_eligible.append(assignment)
+            elif request.section_id in assignment.section_ids:
+                section_eligible.append(assignment)
+        
         assigned_faculty = None
-        if eligible_assignments:
-            # Simple Strategy: Pick Random
-            assignment = random.choice(eligible_assignments)
+        if section_eligible:
+            # Simple Strategy: Pick Random from section-eligible faculty
+            assignment = random.choice(section_eligible)
             assigned_faculty = db.query(models.Faculty).get(assignment.faculty_id)
         
         while hours_needed > 0:
@@ -132,6 +142,163 @@ def generate_timetable(request: schemas.GenerateTimetableRequest, db: Session = 
     db.commit()
     db.refresh(new_timetable)
     return new_timetable
+
+@router.post("/generate-all")
+def generate_all_timetables(semester: Optional[int] = 3, db: Session = Depends(get_db)):
+    """
+    Generates timetables for ALL sections across all departments.
+    Returns summary of generation results.
+    """
+    # Fetch all sections
+    all_sections = db.query(models.Section).all()
+    
+    if not all_sections:
+        raise HTTPException(status_code=404, detail="No sections found in database")
+    
+    results = {
+        "total": len(all_sections),
+        "generated": 0,
+        "failed": 0,
+        "errors": [],
+        "timetables": []
+    }
+    
+    for section in all_sections:
+        try:
+            # Get department via academic year
+            academic_year = section.academic_year
+            if not academic_year:
+                results["failed"] += 1
+                results["errors"].append({
+                    "section_id": section.id,
+                    "section_name": section.name,
+                    "error": "No academic year associated"
+                })
+                continue
+            
+            department_id = academic_year.department_id
+            
+            # Fetch subjects for this department and semester
+            subjects = db.query(models.Subject).filter(
+                models.Subject.department_id == department_id,
+                models.Subject.semester == semester
+            ).all()
+            
+            if not subjects:
+                results["failed"] += 1
+                results["errors"].append({
+                    "section_id": section.id,
+                    "section_name": section.name,
+                    "error": f"No subjects found for semester {semester}"
+                })
+                continue
+            
+            # Delete existing timetable for this section if any
+            existing = db.query(models.Timetable).filter(
+                models.Timetable.section_id == section.id,
+                models.Timetable.semester == semester
+            ).first()
+            
+            if existing:
+                # Delete entries first
+                db.query(models.TimetableEntry).filter(
+                    models.TimetableEntry.timetable_id == existing.id
+                ).delete()
+                db.delete(existing)
+                db.commit()
+            
+            # Create new timetable
+            new_timetable = models.Timetable(
+                section_id=section.id,
+                semester=semester,
+                status="ACTIVE"
+            )
+            db.add(new_timetable)
+            db.commit()
+            db.refresh(new_timetable)
+            
+            # Fetch timeslots
+            timeslots = db.query(models.TimeSlot).filter(models.TimeSlot.is_break == False).all()
+            
+            if not timeslots:
+                results["failed"] += 1
+                results["errors"].append({
+                    "section_id": section.id,
+                    "section_name": section.name,
+                    "error": "No timeslots available"
+                })
+                db.delete(new_timetable)
+                db.commit()
+                continue
+            
+            # Allocate subjects to timeslots
+            allocated_slots = set()
+            
+            for subject in subjects:
+                hours_needed = subject.weekly_hours
+                
+                # Get faculty assigned to this subject for this section
+                eligible_assignments = db.query(models.FacultySubjectAssignment).filter(
+                    models.FacultySubjectAssignment.subject_id == subject.id
+                ).all()
+                
+                # Filter by section assignment
+                section_eligible = []
+                for assignment in eligible_assignments:
+                    if assignment.section_ids is None or not assignment.section_ids:
+                        section_eligible.append(assignment)
+                    elif section.id in assignment.section_ids:
+                        section_eligible.append(assignment)
+                
+                assigned_faculty = None
+                if section_eligible:
+                    assignment = random.choice(section_eligible)
+                    assigned_faculty = db.query(models.Faculty).get(assignment.faculty_id)
+                
+                # Allocate timeslots
+                attempts = 0
+                while hours_needed > 0 and attempts < 100:
+                    attempts += 1
+                    slot = random.choice(timeslots)
+                    
+                    if slot.id in allocated_slots:
+                        continue
+                    
+                    # Create entry
+                    entry = models.TimetableEntry(
+                        timetable_id=new_timetable.id,
+                        timeslot_id=slot.id,
+                        subject_id=subject.id,
+                        faculty_id=assigned_faculty.id if assigned_faculty else None
+                    )
+                    db.add(entry)
+                    allocated_slots.add(slot.id)
+                    hours_needed -= 1
+                    
+                    if hours_needed <= 0:
+                        break
+            
+            db.commit()
+            
+            results["generated"] += 1
+            results["timetables"].append({
+                "timetable_id": new_timetable.id,
+                "section_id": section.id,
+                "section_name": section.name,
+                "year": academic_year.name
+            })
+            
+        except Exception as e:
+            results["failed"] += 1
+            results["errors"].append({
+                "section_id": section.id,
+                "section_name": section.name,
+                "error": str(e)
+            })
+            db.rollback()
+            continue
+    
+    return results
 
 @router.get("/", response_model=List[schemas.Timetable])
 def get_timetables(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):

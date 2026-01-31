@@ -101,6 +101,7 @@ class Subject(SubjectBase):
 class FacultySubjectAssignmentBase(BaseModel):
     subject_id: int
     preference_level: int = 1
+    section_ids: Optional[List[int]] = None  # List of section IDs
 
 class FacultySubjectAssignmentCreate(FacultySubjectAssignmentBase):
     pass

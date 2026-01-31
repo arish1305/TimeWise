@@ -174,6 +174,18 @@ def delete_subject(subject_id: int, db: Session = Depends(database.get_db)):
     subject = db.query(models.Subject).filter(models.Subject.id == subject_id).first()
     if not subject:
          raise HTTPException(status_code=404, detail="Subject not found")
+    
+    # Delete related faculty subject assignments
+    db.query(models.FacultySubjectAssignment).filter(
+        models.FacultySubjectAssignment.subject_id == subject_id
+    ).delete()
+    
+    # Delete related timetable entries
+    db.query(models.TimetableEntry).filter(
+        models.TimetableEntry.subject_id == subject_id
+    ).delete()
+    
+    # Now delete the subject
     db.delete(subject)
     db.commit()
     return {"message": "Subject deleted"}
@@ -231,6 +243,18 @@ def delete_faculty(faculty_id: int, db: Session = Depends(database.get_db)):
     faculty = db.query(models.Faculty).filter(models.Faculty.id == faculty_id).first()
     if not faculty:
         raise HTTPException(status_code=404, detail="Faculty not found")
+    
+    # Delete related faculty subject assignments first
+    db.query(models.FacultySubjectAssignment).filter(
+        models.FacultySubjectAssignment.faculty_id == faculty_id
+    ).delete()
+    
+    # Delete related timetable entries
+    db.query(models.TimetableEntry).filter(
+        models.TimetableEntry.faculty_id == faculty_id
+    ).delete()
+    
+    # Now delete the faculty
     db.delete(faculty)
     db.commit()
     return {"message": "Faculty deleted"}
@@ -257,7 +281,8 @@ def assign_faculty_subjects(faculty_id: int, assignments: List[schemas.FacultySu
         db_assignment = models.FacultySubjectAssignment(
             faculty_id=faculty_id,
             subject_id=assignment.subject_id,
-            preference_level=assignment.preference_level
+            preference_level=assignment.preference_level,
+            section_ids=assignment.section_ids  # Store section assignments
         )
         db.add(db_assignment)
         new_assignments.append(db_assignment)

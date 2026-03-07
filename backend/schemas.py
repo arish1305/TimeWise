@@ -64,6 +64,12 @@ class Section(SectionBase):
     class Config:
         from_attributes = True
 
+class SectionWithYear(SectionBase):
+    id: int
+    academic_year: Optional[AcademicYear] = None
+    class Config:
+        from_attributes = True
+
 # --- Room Schemas ---
 class RoomBase(BaseModel):
     room_number: str
@@ -138,6 +144,14 @@ class GenerateTimetableRequest(BaseModel):
     section_id: int # Timetable is per section now
     academic_year_id: Optional[int] = None
 
+# Simpler Faculty schema for timetable entries (avoids circular refs)
+class FacultyBasic(BaseModel):
+    id: int
+    name: str
+    faculty_id_code: Optional[str] = None
+    class Config:
+        from_attributes = True
+
 class TimetableEntryBase(BaseModel):
     subject_id: int
     faculty_id: Optional[int]
@@ -147,7 +161,7 @@ class TimetableEntryBase(BaseModel):
 class TimetableEntry(TimetableEntryBase):
     id: int
     subject: Optional[Subject] = None
-    faculty: Optional[Faculty] = None
+    faculty: Optional[FacultyBasic] = None
     room: Optional[Room] = None
     timeslot: Optional['TimeSlot'] = None 
     class Config:
@@ -160,6 +174,7 @@ class TimetableBase(BaseModel):
 
 class Timetable(TimetableBase):
     id: int
+    section: Optional[SectionWithYear] = None
     entries: List[TimetableEntry] = []
     class Config:
         from_attributes = True

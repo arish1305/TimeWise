@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Calendar, RefreshCw, Filter, ChevronDown, Check, X } from 'lucide-react';
+import { Calendar, RefreshCw, Filter, ChevronDown, Check, X, Clock, Users, BookOpen } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import '../styles/Timetables.css';
 
 // API Configuration
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -199,69 +200,60 @@ const Timetables = () => {
 
         const formatTime = (t: string) => {
             const [h, m] = t.split(':');
-            const hour = parseInt(h);
-            return `${hour}.${m}`;
+            return `${parseInt(h)}:${m}`;
         };
 
         const formatRange = (start: string, end: string) => {
             const s = formatTime(start);
             const e = formatTime(end);
-            const endHour = parseInt(end.split(':')[0]);
-            const ampm = endHour >= 12 ? 'pm' : 'am';
-            return `${s}-${e}${ampm}`;
-        };
-
-        const cellStyle: React.CSSProperties = {
-            border: '1px solid var(--text-primary)',
-            padding: '8px',
-            textAlign: 'center',
-            position: 'relative',
-        };
-
-        const headerStyle: React.CSSProperties = {
-            ...cellStyle,
-            backgroundColor: 'var(--secondary-color)',
-            color: 'white',
-            fontWeight: 'bold',
-            textTransform: 'uppercase',
-            fontSize: '0.85rem'
+            return `${s} - ${e}`;
         };
 
         return (
             <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="card"
-                style={{ marginTop: '2rem', padding: '0', overflow: 'hidden' }}
+                className="timetable-wrapper"
             >
                 {/* Header Information */}
-                <div style={{
-                    padding: '1.5rem',
-                    borderBottom: '2px solid var(--text-primary)',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    backgroundColor: '#fff'
-                }}>
-                    <div><span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block' }}>Year</span><strong style={{ fontSize: '1.1rem' }}>{academicYears.find((y: any) => y.id == selectedYear)?.name || '-'}</strong></div>
-                    <div><span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block' }}>Semester</span><strong style={{ fontSize: '1.1rem' }}>{semester || '-'}</strong></div>
-                    <div><span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block' }}>Batch</span><strong style={{ fontSize: '1.1rem' }}>2023-2027</strong></div>
-                    <div><span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block' }}>Section</span><strong style={{ fontSize: '1.1rem' }}>{sections.find((s: any) => s.id == selectedSection)?.name || '-'}</strong></div>
-                    <div><span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block' }}>Hall</span><strong style={{ fontSize: '1.1rem' }}>363</strong></div>
+                <div className="timetable-header-info">
+                    <div className="info-item">
+                        <span className="label">Year</span>
+                        <div className="value">
+                            {timetable?.section?.academic_year?.name ||
+                                academicYears.find((y: any) => y.id == selectedYear)?.name || '-'}
+                        </div>
+                    </div>
+                    <div className="info-item">
+                        <span className="label">Semester</span>
+                        <div className="value">{timetable?.semester || semester || '-'}</div>
+                    </div>
+                    <div className="info-item">
+                        <span className="label">Section</span>
+                        <div className="value">
+                            {timetable?.section?.name ||
+                                sections.find((s: any) => s.id == selectedSection)?.name || '-'}
+                        </div>
+                    </div>
+                    <div className="info-item">
+                        <span className="label">Room</span>
+                        <div className="value">
+                            {(() => {
+                                const roomEntry = timetable?.entries?.find((e: any) => e.room);
+                                return roomEntry?.room?.room_number || '-';
+                            })()}
+                        </div>
+                    </div>
                 </div>
 
-                <div style={{ overflowX: 'auto', padding: '1rem' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', backgroundColor: 'white' }}>
+                <div className="timetable-container">
+                    <table className="timetable-grid">
                         <thead>
                             <tr>
-                                <th style={{ ...headerStyle, width: '120px' }}>
-                                    DAY/TIMING
-                                </th>
+                                <th className="header-day">DAY / TIME</th>
                                 {uniqueTimes.map((t, idx) => (
-                                    <th key={idx} style={headerStyle}>
-                                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                                            <span>{formatRange(t.start, t.end)}</span>
-                                        </div>
+                                    <th key={idx} className="header-cell">
+                                        <div className="time-range">{formatRange(t.start, t.end)}</div>
                                     </th>
                                 ))}
                             </tr>
@@ -269,25 +261,13 @@ const Timetables = () => {
                         <tbody>
                             {days.map((day, dayIdx) => (
                                 <tr key={day}>
-                                    <td style={{ ...cellStyle, fontWeight: 'bold', backgroundColor: 'var(--background-color)' }}>
-                                        {day}
-                                    </td>
+                                    <td className="day-cell">{day.substring(0, 3).toUpperCase()}</td>
                                     {uniqueTimes.map((t, timeIdx) => {
                                         if (t.is_break) {
                                             if (dayIdx === 0) {
                                                 return (
-                                                    <td key={timeIdx} rowSpan={days.length} style={{ ...cellStyle, backgroundColor: '#f1f5f9', verticalAlign: 'middle' }}>
-                                                        <div style={{
-                                                            writingMode: 'vertical-lr',
-                                                            textOrientation: 'upright',
-                                                            letterSpacing: '0.2em',
-                                                            height: '100%',
-                                                            margin: '0 auto',
-                                                            fontWeight: 'bold',
-                                                            color: 'var(--text-secondary)'
-                                                        }}>
-                                                            {t.label?.toUpperCase() || "BREAK"}
-                                                        </div>
+                                                    <td key={timeIdx} rowSpan={days.length} className="cell-break">
+                                                        <div className="break-text">{t.label?.toUpperCase() || "BREAK"}</div>
                                                     </td>
                                                 );
                                             } else {
@@ -299,26 +279,18 @@ const Timetables = () => {
                                         const entry = slot ? entryMap[slot.id] : null;
 
                                         return (
-                                            <td key={timeIdx} style={{ ...cellStyle, height: '80px', verticalAlign: 'middle' }}>
+                                            <td key={timeIdx} className={`timetable-cell ${entry ? 'cell-filled' : 'cell-empty'}`}>
                                                 {entry ? (
-                                                    <div style={{
-                                                        display: 'flex',
-                                                        flexDirection: 'column',
-                                                        alignItems: 'center',
-                                                        justifyContent: 'center',
-                                                        height: '100%'
-                                                    }}>
-                                                        <span style={{ fontWeight: 'bold', color: 'var(--primary-color)', fontSize: '1rem', marginBottom: '4px' }}>{entry.subject?.code}</span>
-                                                        <span style={{
-                                                            fontSize: '0.75rem',
-                                                            color: '#fff',
-                                                            backgroundColor: 'var(--primary-color)',
-                                                            padding: '2px 8px',
-                                                            borderRadius: '12px'
-                                                        }}>{entry.faculty?.name || "TBD"}</span>
+                                                    <div className="cell-content">
+                                                        <div className="subject-code" title={entry.subject?.name}>
+                                                            {entry.subject?.code || 'N/A'}
+                                                        </div>
+                                                        <div className="faculty-badge" title={entry.faculty?.name || "Unassigned"}>
+                                                            {entry.faculty?.name || "Unassigned"}
+                                                        </div>
                                                     </div>
                                                 ) : (
-                                                    <span style={{ color: 'var(--border-color)' }}>-</span>
+                                                    <div className="cell-content"></div>
                                                 )}
                                             </td>
                                         );
@@ -333,54 +305,40 @@ const Timetables = () => {
     };
 
     return (
-        <div className="animate-fade-in">
-            <div style={{ marginBottom: '2rem' }}>
-                <h1 style={{ fontSize: '1.875rem', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
-                    <span style={{
-                        display: 'inline-flex',
-                        padding: '0.5rem',
-                        backgroundColor: 'var(--primary-color)',
-                        color: 'white',
-                        borderRadius: '0.5rem',
-                        boxShadow: '0 4px 6px -1px rgba(99, 102, 241, 0.3)'
-                    }}>
+        <div className="animate-fade-in page-container">
+            <div className="page-header">
+                <h1>
+                    <span className="icon-wrapper">
                         <Calendar size={24} />
                     </span>
                     Timetable Generator
                 </h1>
-                <p style={{ color: 'var(--text-secondary)' }}>Generate and manage academic schedules with ease.</p>
+                <p>Generate and manage academic schedules with ease.</p>
             </div>
 
             {/* Controls Card */}
-            <div className="card" style={{ marginBottom: '2rem' }}>
-                <div style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-                    gap: '1.5rem',
-                    alignItems: 'end'
-                }}>
-                    <div className="input-group" style={{ marginBottom: 0 }}>
+            <div className="card controls-card">
+                <div className="controls-grid">
+                    <div className="input-group">
                         <label className="input-label">Department</label>
-                        <div style={{ position: 'relative' }}>
+                        <div className="select-wrapper">
                             <select
                                 className="input-field"
-                                style={{ width: '100%', appearance: 'none', cursor: 'pointer' }}
                                 value={selectedDept}
                                 onChange={(e) => handleDeptChange(e.target.value)}
                             >
                                 <option value="">Select Department</option>
                                 {departments.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
                             </select>
-                            <ChevronDown size={16} style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: 'var(--text-secondary)' }} />
+                            <ChevronDown className="select-icon" size={16} />
                         </div>
                     </div>
 
-                    <div className="input-group" style={{ marginBottom: 0 }}>
+                    <div className="input-group">
                         <label className="input-label">Year</label>
-                        <div style={{ position: 'relative' }}>
+                        <div className="select-wrapper">
                             <select
                                 className="input-field"
-                                style={{ width: '100%', appearance: 'none', cursor: 'pointer' }}
                                 value={selectedYear}
                                 onChange={(e) => handleYearChange(e.target.value)}
                                 disabled={!selectedDept}
@@ -388,16 +346,15 @@ const Timetables = () => {
                                 <option value="">Select Year</option>
                                 {academicYears.map((y: any) => <option key={y.id} value={y.id}>{y.name}</option>)}
                             </select>
-                            <ChevronDown size={16} style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: 'var(--text-secondary)' }} />
+                            <ChevronDown className="select-icon" size={16} />
                         </div>
                     </div>
 
-                    <div className="input-group" style={{ marginBottom: 0 }}>
+                    <div className="input-group">
                         <label className="input-label">Section</label>
-                        <div style={{ position: 'relative' }}>
+                        <div className="select-wrapper">
                             <select
                                 className="input-field"
-                                style={{ width: '100%', appearance: 'none', cursor: 'pointer' }}
                                 value={selectedSection}
                                 onChange={(e) => setSelectedSection(e.target.value)}
                                 disabled={!selectedYear}
@@ -405,26 +362,27 @@ const Timetables = () => {
                                 <option value="">Select Section</option>
                                 {sections.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}
                             </select>
-                            <ChevronDown size={16} style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: 'var(--text-secondary)' }} />
+                            <ChevronDown className="select-icon" size={16} />
                         </div>
                     </div>
 
-                    <div className="input-group" style={{ marginBottom: 0 }}>
+                    <div className="input-group">
                         <label className="input-label">Semester</label>
-                        <input
-                            type="number"
-                            className="input-field"
-                            value={semester}
-                            onChange={(e) => setSemester(parseInt(e.target.value))}
-                            min="1" max="8"
-                        />
+                        <div className="select-wrapper">
+                            <input
+                                type="number"
+                                className="input-field"
+                                value={semester}
+                                onChange={(e) => setSemester(parseInt(e.target.value))}
+                                min="1" max="8"
+                            />
+                        </div>
                     </div>
 
                     <button
-                        className="btn btn-primary"
+                        className="btn btn-primary generate-btn"
                         onClick={generateTimetable}
                         disabled={loading || !selectedSection}
-                        style={{ height: '42px', opacity: (loading || !selectedSection) ? 0.7 : 1 }}
                     >
                         {loading ? <RefreshCw className="animate-spin" size={18} /> : <RefreshCw size={18} />}
                         Generate
@@ -432,66 +390,43 @@ const Timetables = () => {
                 </div>
 
                 {/* Divider */}
-                <div style={{ margin: '1.5rem 0', borderTop: '2px dashed var(--border-color)', position: 'relative' }}>
-                    <span style={{
-                        position: 'absolute',
-                        top: '-12px',
-                        left: '50%',
-                        transform: 'translateX(-50%)',
-                        background: 'white',
-                        padding: '0 1rem',
-                        color: 'var(--text-secondary)',
-                        fontSize: '0.875rem',
-                        fontWeight: 600
-                    }}>OR</span>
+                <div className="divider">
+                    <span>OR</span>
                 </div>
 
                 {/* Bulk Generation */}
-                <div style={{ textAlign: 'center' }}>
-                    <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+                <div className="bulk-actions">
+                    <div className="action-buttons">
                         <button
-                            className="btn"
+                            className="btn btn-gradient"
                             onClick={generateAllTimetables}
                             disabled={bulkGenerating}
-                            style={{
-                                background: 'linear-gradient(135deg, var(--secondary-color) 0%, var(--primary-color) 100%)',
-                                color: 'white',
-                                fontSize: '1rem',
-                                padding: '0.75rem 2rem',
-                                fontWeight: 600,
-                                opacity: bulkGenerating ? 0.7 : 1
-                            }}
                         >
                             {bulkGenerating ? (
                                 <>
                                     <RefreshCw className="animate-spin" size={20} />
-                                    Generating All Timetables...
+                                    Generating All...
                                 </>
                             ) : (
                                 <>
-                                    <Calendar size={20} />
+                                    <Users size={20} />
                                     Generate All Timetables
                                 </>
                             )}
                         </button>
 
                         <button
-                            className="btn btn-primary"
+                            className="btn btn-outline"
                             onClick={() => {
                                 fetchAllTimetables();
                                 setShowAllTimetables(true);
-                            }}
-                            style={{
-                                fontSize: '1rem',
-                                padding: '0.75rem 2rem',
-                                fontWeight: 600
                             }}
                         >
                             <Filter size={20} />
                             View All Timetables
                         </button>
                     </div>
-                    <p style={{ marginTop: '0.5rem', fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+                    <p className="help-text">
                         Automatically generate timetables for all sections (Semester {semester})
                     </p>
                 </div>
@@ -500,91 +435,43 @@ const Timetables = () => {
             {/* View All Timetables Modal */}
             <AnimatePresence>
                 {showAllTimetables && (
-                    <div
-                        style={{
-                            position: 'fixed',
-                            top: 0,
-                            left: 0,
-                            right: 0,
-                            bottom: 0,
-                            background: 'rgba(0,0,0,0.5)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            zIndex: 1000
-                        }}
-                        onClick={() => setShowAllTimetables(false)}
-                    >
+                    <div className="modal-overlay" onClick={() => setShowAllTimetables(false)}>
                         <motion.div
                             initial={{ scale: 0.9, opacity: 0 }}
                             animate={{ scale: 1, opacity: 1 }}
                             exit={{ scale: 0.9, opacity: 0 }}
-                            className="card"
-                            style={{
-                                width: '600px',
-                                maxHeight: '80vh',
-                                display: 'flex',
-                                flexDirection: 'column',
-                                padding: 0
-                            }}
+                            className="modal-content card"
                             onClick={(e) => e.stopPropagation()}
                         >
-                            <div style={{
-                                padding: '1.5rem',
-                                borderBottom: '1px solid var(--border-color)',
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                alignItems: 'center'
-                            }}>
-                                <h3 style={{ margin: 0 }}>All Generated Timetables</h3>
-                                <button
-                                    className="btn"
-                                    onClick={() => setShowAllTimetables(false)}
-                                    style={{ padding: '0.5rem' }}
-                                >
+                            <div className="modal-header">
+                                <h3>All Generated Timetables</h3>
+                                <button className="btn-icon" onClick={() => setShowAllTimetables(false)}>
                                     <X size={20} />
                                 </button>
                             </div>
 
-                            <div style={{ padding: '1.5rem', overflowY: 'auto', flex: 1 }}>
+                            <div className="modal-body">
                                 {allTimetables.length === 0 ? (
-                                    <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-secondary)' }}>
+                                    <div className="empty-state">
                                         <p>No timetables found. Generate timetables first.</p>
                                     </div>
                                 ) : (
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                    <div className="timetable-list">
                                         {allTimetables.map((tt: any) => (
                                             <div
                                                 key={tt.id}
+                                                className="timetable-list-item"
                                                 onClick={() => loadTimetable(tt.id)}
-                                                style={{
-                                                    padding: '1rem',
-                                                    border: '1px solid var(--border-color)',
-                                                    borderRadius: '8px',
-                                                    cursor: 'pointer',
-                                                    transition: 'all 0.2s',
-                                                    display: 'flex',
-                                                    justifyContent: 'space-between',
-                                                    alignItems: 'center'
-                                                }}
-                                                onMouseEnter={(e) => {
-                                                    e.currentTarget.style.borderColor = 'var(--primary-color)';
-                                                    e.currentTarget.style.backgroundColor = 'var(--background-color)';
-                                                }}
-                                                onMouseLeave={(e) => {
-                                                    e.currentTarget.style.borderColor = 'var(--border-color)';
-                                                    e.currentTarget.style.backgroundColor = 'transparent';
-                                                }}
                                             >
                                                 <div>
-                                                    <div style={{ fontWeight: 600, marginBottom: '0.25rem' }}>
+                                                    <div className="item-title">
                                                         {tt.section?.academic_year?.name || 'Unknown Year'} - Section {tt.section?.name || 'Unknown'}
                                                     </div>
-                                                    <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+                                                    <div className="item-subtitle">
                                                         Semester {tt.semester} • {tt.entries?.length || 0} classes
                                                     </div>
                                                 </div>
-                                                <div style={{ color: 'var(--primary-color)', fontSize: '0.875rem' }}>
+                                                <div className="item-action">
                                                     View →
                                                 </div>
                                             </div>
@@ -602,72 +489,39 @@ const Timetables = () => {
                 <motion.div
                     initial={{ opacity: 0, y: -10 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="card"
-                    style={{ marginBottom: '2rem', borderLeft: '4px solid var(--primary-color)' }}
+                    className="card result-card"
                 >
-                    <h3 style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <Check size={24} style={{ color: '#10b981' }} />
+                    <h3 className="result-title">
+                        <Check size={24} className="success-icon" />
                         Bulk Generation Complete
                     </h3>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
-                        <div style={{ textAlign: 'center', padding: '1rem', background: 'var(--background-color)', borderRadius: '8px' }}>
-                            <div style={{ fontSize: '2rem', fontWeight: 'bold', color: 'var(--primary-color)' }}>{bulkResults.total}</div>
-                            <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Total Sections</div>
+                    <div className="result-stats">
+                        <div className="stat-item">
+                            <div className="stat-value primary">{bulkResults.total}</div>
+                            <div className="stat-label">Total Sections</div>
                         </div>
-                        <div style={{ textAlign: 'center', padding: '1rem', background: '#f0fdf4', borderRadius: '8px' }}>
-                            <div style={{ fontSize: '2rem', fontWeight: 'bold', color: '#10b981' }}>{bulkResults.generated}</div>
-                            <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Generated</div>
+                        <div className="stat-item bg-success">
+                            <div className="stat-value success">{bulkResults.generated}</div>
+                            <div className="stat-label">Generated</div>
                         </div>
-                        <div style={{ textAlign: 'center', padding: '1rem', background: '#fef2f2', borderRadius: '8px' }}>
-                            <div style={{ fontSize: '2rem', fontWeight: 'bold', color: 'var(--error-color)' }}>{bulkResults.failed}</div>
-                            <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Failed</div>
+                        <div className="stat-item bg-error">
+                            <div className="stat-value error">{bulkResults.failed}</div>
+                            <div className="stat-label">Failed</div>
                         </div>
                     </div>
 
                     {bulkResults.timetables && bulkResults.timetables.length > 0 && (
-                        <div>
-                            <h4 style={{ marginBottom: '0.75rem', fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
-                                Generated Timetables (click to view):
-                            </h4>
-                            <div style={{ maxHeight: '200px', overflowY: 'auto', fontSize: '0.875rem' }}>
+                        <div className="generated-list">
+                            <h4>Generated Timetables:</h4>
+                            <div className="list-container">
                                 {bulkResults.timetables.map((tt: any, idx: number) => (
                                     <div
                                         key={idx}
+                                        className="generated-item"
                                         onClick={() => loadTimetable(tt.timetable_id)}
-                                        style={{
-                                            padding: '0.75rem',
-                                            borderBottom: '1px solid var(--border-color)',
-                                            cursor: 'pointer',
-                                            transition: 'all 0.2s',
-                                            borderRadius: '4px',
-                                            marginBottom: '2px'
-                                        }}
-                                        onMouseEnter={(e) => {
-                                            e.currentTarget.style.backgroundColor = 'var(--background-color)';
-                                            e.currentTarget.style.paddingLeft = '1rem';
-                                        }}
-                                        onMouseLeave={(e) => {
-                                            e.currentTarget.style.backgroundColor = 'transparent';
-                                            e.currentTarget.style.paddingLeft = '0.75rem';
-                                        }}
                                     >
-                                        ✅ {tt.year} - Section {tt.section_name} <span style={{ color: 'var(--primary-color)', fontSize: '0.75rem', marginLeft: '0.5rem' }}>→ Click to view</span>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    )}
-
-                    {bulkResults.errors && bulkResults.errors.length > 0 && (
-                        <div style={{ marginTop: '1rem' }}>
-                            <h4 style={{ marginBottom: '0.75rem', fontSize: '0.875rem', fontWeight: 600, color: 'var(--error-color)' }}>
-                                Errors:
-                            </h4>
-                            <div style={{ maxHeight: '150px', overflowY: 'auto', fontSize: '0.875rem' }}>
-                                {bulkResults.errors.map((err: any, idx: number) => (
-                                    <div key={idx} style={{ padding: '0.5rem', borderBottom: '1px solid var(--border-color)', color: 'var(--error-color)' }}>
-                                        ❌ Section {err.section_name}: {err.error}
+                                        ✅ {tt.year} - Section {tt.section_name}
                                     </div>
                                 ))}
                             </div>
@@ -677,18 +531,8 @@ const Timetables = () => {
             )}
 
             {error && (
-                <div style={{
-                    padding: '1rem',
-                    backgroundColor: '#fef2f2',
-                    color: 'var(--error-color)',
-                    borderRadius: '0.5rem',
-                    border: '1px solid #fecaca',
-                    marginBottom: '1.5rem',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.5rem'
-                }}>
-                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--error-color)' }}></div>
+                <div className="error-banner">
+                    <div className="error-dot"></div>
                     {error}
                 </div>
             )}
@@ -702,27 +546,12 @@ const Timetables = () => {
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
-                        className="card"
-                        style={{
-                            padding: '4rem',
-                            textAlign: 'center',
-                            borderStyle: 'dashed',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            alignItems: 'center',
-                            gap: '1rem',
-                            color: 'var(--text-secondary)'
-                        }}
+                        className="card empty-placeholder"
                     >
-                        <div style={{
-                            padding: '1rem',
-                            backgroundColor: 'var(--background-color)',
-                            borderRadius: '50%',
-                            display: 'inline-flex'
-                        }}>
-                            <Filter size={32} style={{ opacity: 0.5 }} />
+                        <div className="icon-circle">
+                            <Filter size={32} />
                         </div>
-                        <p style={{ fontWeight: 500 }}>Configure parameters above to generate a timetable</p>
+                        <p>Configure parameters above to generate a timetable</p>
                     </motion.div>
                 )}
             </AnimatePresence>

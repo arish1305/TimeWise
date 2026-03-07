@@ -16,132 +16,209 @@ router = APIRouter(
 
 @router.post("/generate", response_model=schemas.Timetable)
 def generate_timetable(request: schemas.GenerateTimetableRequest, db: Session = Depends(get_db)):
-    """
-    Generates a timetable for a specific Section and Semester.
-    1. Fetches Section to confirm existence.
-    2. Fetches Subjects for the Department & Semester.
-    3. Fetches Faculty assigned to these subjects.
-    4. Fetches available TimeSlots (non-break).
-    5. Allocates slots ensuring:
-       - No double booking of Faculty (in other Active/Draft timetables).
-       - No double booking of Section (handled by local constraint).
-    """
-    
-    # 1. Fetch Section
-    section = db.query(models.Section).get(request.section_id)
-    if not section:
-        raise HTTPException(status_code=404, detail="Section not found")
+    try:
+        # 1. Fetch Section
+        section = db.query(models.Section).get(request.section_id)
+        if not section:
+            raise HTTPException(status_code=404, detail="Section not found")
+            
+        academic_year = section.academic_year
+        department_id = academic_year.department_id
         
-    # Get Department via AcademicYear
-    academic_year = section.academic_year
-    department_id = academic_year.department_id
-    
-    # 2. Fetch Subjects
-    subjects = db.query(models.Subject).filter(
-        models.Subject.department_id == department_id,
-        models.Subject.semester == request.semester
-    ).all()
-    
-    if not subjects:
-        # Fallback: check if subjects exist at all?
-        raise HTTPException(status_code=400, detail="No subjects found for this Department and Semester")
-
-    # 3. Fetch TimeSlots
-    timeslots = db.query(models.TimeSlot).filter(models.TimeSlot.is_break == False).all()
-    if not timeslots:
-        raise HTTPException(status_code=400, detail="No time slots defined")
-
-    # 4. Create new Timetable Record
-    new_timetable = models.Timetable(
-        section_id=request.section_id,
-        semester=request.semester,
-        status="DRAFT",
-        is_active=False
-    )
-    db.add(new_timetable)
-    db.commit()
-    db.refresh(new_timetable)
-    
-    # 5. Allocation Algorithm
-    
-    # Helper: Check if faculty is busy
-    def is_faculty_busy(faculty_id: int, timeslot_id: int) -> bool:
-        # Check against assignments in ACTIVE timetables only.
-        return db.query(models.TimetableEntry).join(models.Timetable).filter(
-            models.Timetable.is_active == True,
-            models.TimetableEntry.timeslot_id == timeslot_id,
-            models.TimetableEntry.faculty_id == faculty_id
-        ).count() > 0
-
-    section_occupied_slots = set() # (timeslot_id)
-    entries = []
-    
-    # Randomize subject processing order
-    alloc_subjects = list(subjects)
-    random.shuffle(alloc_subjects)
-    
-    for subject in alloc_subjects:
-        hours_needed = subject.weekly_hours
-        
-        # Get assigned faculty for this section
-        eligible_assignments = db.query(models.FacultySubjectAssignment).filter(
-            models.FacultySubjectAssignment.subject_id == subject.id
+        # 2. Fetch Subjects
+        subjects_db = db.query(models.Subject).filter(
+            models.Subject.department_id == department_id,
+            models.Subject.semester == request.semester
         ).all()
         
-        # Filter by section assignment
-        section_eligible = []
-        for assignment in eligible_assignments:
-            # If section_ids is None or empty, faculty is available for all sections
-            # Otherwise, check if current section is in the assigned sections
-            if assignment.section_ids is None or not assignment.section_ids:
-                section_eligible.append(assignment)
-            elif request.section_id in assignment.section_ids:
-                section_eligible.append(assignment)
+        if not subjects_db:
+            raise HTTPException(status_code=400, detail="No subjects found for this Department and Semester")
+
+        # 3. Fetch TimeSlots
+        timeslots_db = db.query(models.TimeSlot).filter(models.TimeSlot.is_break == False).all()
+        if not timeslots_db:
+            raise HTTPException(status_code=400, detail="No time slots defined")
+
+        # 4. Prepare Data for AI Engine
+        import os
+        import json
+        import urllib.request
+        import urllib.error
         
-        assigned_faculty = None
-        if section_eligible:
-            # Simple Strategy: Pick Random from section-eligible faculty
-            assignment = random.choice(section_eligible)
-            assigned_faculty = db.query(models.Faculty).get(assignment.faculty_id)
+        AI_ENGINE_URL = os.getenv("AI_ENGINE_URL", "http://localhost:8001")
         
-        while hours_needed > 0:
-            # Candidate slots (all non-break slots)
-            slot_candidates = list(timeslots)
-            random.shuffle(slot_candidates)
+        # Format Subjects
+        subjects_payload = []
+        faculty_ids = set()
+        for s in subjects_db:
+            assigns = db.query(models.FacultySubjectAssignment).filter(
+                models.FacultySubjectAssignment.subject_id == s.id
+            ).all()
             
-            placed = False
-            for slot in slot_candidates:
-                if slot.id in section_occupied_slots:
+            valid_assign = None
+            for a in assigns:
+                if not a.section_ids or request.section_id in a.section_ids:
+                    valid_assign = a
+                    break
+            
+            fid = valid_assign.faculty_id if valid_assign else None
+            if fid:
+                faculty_ids.add(fid)
+                
+            subjects_payload.append({
+                "id": s.id,
+                "name": s.name,
+                "credits": s.weekly_hours, 
+                "faculty_id": fid
+            })
+
+        # Format Faculty
+        faculty_db = db.query(models.Faculty).filter(models.Faculty.id.in_(faculty_ids)).all()
+        faculty_payload = [{"id": f.id, "name": f.name} for f in faculty_db]
+        
+        # Format Rooms
+        rooms_db = db.query(models.Room).all()
+        rooms_payload = [{"id": r.id, "capacity": r.capacity} for r in rooms_db]
+        
+        # Format TimeSlots
+        timeslots_payload = [{"id": t.id, "day": t.day, "time": str(t.start_time)} for t in timeslots_db]
+        
+        # 4.1 Fetch Existing Faculty Commitments (Global Constraints)
+        # Find all active timetables for the same semester (excluding this section's previous attempts if any)
+        # We assume "Active" or even "Draft" in other sections counts as busy to avoid conflicts.
+        # Ideally, we should only count "APPROVED" or "ACTIVE" timetables, but for MVP we count all non-active/current.
+        
+        existing_commitments = {} # {faculty_id: [timeslot_id, ...]}
+        faculty_preferences = {}  # {faculty_id: {preferred_slots: ..., max_hours: ...}}
+        
+        # Get all timetable entries for the involved faculty in the same semester
+        if faculty_ids:
+            conflicting_entries = db.query(models.TimetableEntry).join(models.Timetable).filter(
+                models.Timetable.semester == request.semester,
+                models.Timetable.section_id != request.section_id, # Don't count current section
+                models.TimetableEntry.faculty_id.in_(faculty_ids)
+            ).all()
+            
+            for entry in conflicting_entries:
+                if entry.faculty_id:
+                    if entry.faculty_id not in existing_commitments:
+                        existing_commitments[entry.faculty_id] = []
+                    existing_commitments[entry.faculty_id].append(entry.timeslot_id)
+        
+        # Populate Preferences
+        for f in faculty_db:
+             faculty_preferences[f.id] = {
+                 "max_hours": f.max_hours_per_week,
+                 "preferred_slots": f.preferred_slots # JSON
+             }
+
+        payload = {
+            "semester": request.semester,
+            "subjects": subjects_payload,
+            "faculty": faculty_payload,
+            "rooms": rooms_payload,
+            "timeslots": timeslots_payload,
+            "constraints": {
+                "prior_commitments": existing_commitments,
+                "faculty_preferences": faculty_preferences
+            }
+        }
+        
+        # 5. Call AI Engine (with fallback to random allocation)
+        schedule = None
+        try:
+            data = json.dumps(payload).encode('utf-8')
+            req = urllib.request.Request(f"{AI_ENGINE_URL}/optimize", data=data, headers={'Content-Type': 'application/json'})
+            
+            with urllib.request.urlopen(req, timeout=10) as response:
+                if response.status == 200:
+                    result = json.loads(response.read().decode('utf-8'))
+                    if result.get("status") == "success":
+                        schedule = result.get("schedule", [])
+            
+        except (urllib.error.URLError, Exception) as e:
+            print(f"AI Engine unavailable, falling back to random allocation: {e}")
+
+        # 6. Save to Database
+        new_timetable = models.Timetable(
+            section_id=request.section_id,
+            semester=request.semester,
+            status="DRAFT",
+            is_active=False
+        )
+        db.add(new_timetable)
+        db.commit()
+        db.refresh(new_timetable)
+        
+        if schedule:
+            # Use AI Engine schedule
+            section_occupied_slots = set()
+            for item in schedule:
+                if item['timeslot_id'] in section_occupied_slots:
                     continue
-                
-                # Check Faculty Constraint
-                if assigned_faculty:
-                    if is_faculty_busy(assigned_faculty.id, slot.id):
-                        continue
-                
-                # Assign
                 entry = models.TimetableEntry(
                     timetable_id=new_timetable.id,
-                    subject_id=subject.id,
-                    faculty_id=assigned_faculty.id if assigned_faculty else None,
-                    room_id=None,
-                    timeslot_id=slot.id
+                    subject_id=item['subject_id'],
+                    faculty_id=item.get('faculty_id'),
+                    room_id=item.get('room_id'),
+                    timeslot_id=item['timeslot_id']
                 )
                 db.add(entry)
-                section_occupied_slots.add(slot.id)
-                placed = True
+                section_occupied_slots.add(item['timeslot_id'])
+        else:
+            # Fallback: Random allocation (same logic as generate-all)
+            rooms_db_all = db.query(models.Room).all()
+            default_room = rooms_db_all[0] if rooms_db_all else None
+            allocated_slots = set()
+            
+            for subject in subjects_db:
+                hours_needed = subject.weekly_hours
                 
-                # Decrement needed
-                hours_needed -= 1
-                break # Move to next hour for this subject
-            
-            if not placed:
-                print(f"Warning: Could not place subject {subject.name} (ID: {subject.id})")
-                break # Prevent infinite loop
-            
-    db.commit()
-    db.refresh(new_timetable)
-    return new_timetable
+                # Get faculty assigned to this subject
+                eligible_assignments = db.query(models.FacultySubjectAssignment).filter(
+                    models.FacultySubjectAssignment.subject_id == subject.id
+                ).all()
+                
+                section_eligible = []
+                for assignment in eligible_assignments:
+                    if assignment.section_ids is None or not assignment.section_ids:
+                        section_eligible.append(assignment)
+                    elif request.section_id in assignment.section_ids:
+                        section_eligible.append(assignment)
+                
+                assigned_faculty = None
+                if section_eligible:
+                    chosen = random.choice(section_eligible)
+                    assigned_faculty = db.query(models.Faculty).get(chosen.faculty_id)
+                
+                attempts = 0
+                while hours_needed > 0 and attempts < 100:
+                    attempts += 1
+                    slot = random.choice(timeslots_db)
+                    
+                    if slot.id in allocated_slots:
+                        continue
+                    
+                    entry = models.TimetableEntry(
+                        timetable_id=new_timetable.id,
+                        timeslot_id=slot.id,
+                        subject_id=subject.id,
+                        faculty_id=assigned_faculty.id if assigned_faculty else None,
+                        room_id=default_room.id if default_room else None
+                    )
+                    db.add(entry)
+                    allocated_slots.add(slot.id)
+                    hours_needed -= 1
+                
+        db.commit()
+        db.refresh(new_timetable)
+        return new_timetable
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Server Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/generate-all")
 def generate_all_timetables(semester: Optional[int] = 3, db: Session = Depends(get_db)):

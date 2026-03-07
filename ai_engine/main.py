@@ -11,19 +11,19 @@ class OptimizationRequest(BaseModel):
     faculty: List[Dict[str, Any]]
     rooms: List[Dict[str, Any]]
     timeslots: List[Dict[str, Any]]
-    # Optional constraints
     constraints: Optional[Dict[str, Any]] = None
+    locked_slots: Optional[List[Dict[str, Any]]] = None
 
 @app.post("/optimize")
 def optimize_schedule(request: OptimizationRequest):
     try:
-        # Use real data from request
         solver = CSPSolver(
             subjects=request.subjects,
             faculty=request.faculty,
             rooms=request.rooms,
             timeslots=request.timeslots,
-            constraints=request.constraints
+            constraints=request.constraints,
+            locked_slots=request.locked_slots
         )
         schedule = solver.solve()
         
@@ -31,3 +31,4 @@ def optimize_schedule(request: OptimizationRequest):
     except Exception as e:
         print(f"AI Engine Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+

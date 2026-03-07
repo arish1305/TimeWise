@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 from typing import Optional, List
-from models import UserRole, RoomType, FacultyType, SubjectType
+from models import UserRole, RoomType, FacultyType, SubjectType, EntryCreator
 
 class UserBase(BaseModel):
     username: str
@@ -154,9 +154,11 @@ class FacultyBasic(BaseModel):
 
 class TimetableEntryBase(BaseModel):
     subject_id: int
-    faculty_id: Optional[int]
-    room_id: Optional[int]
+    faculty_id: Optional[int] = None
+    room_id: Optional[int] = None
     timeslot_id: int
+    is_locked: bool = False
+    created_by: str = EntryCreator.AI
 
 class TimetableEntry(TimetableEntryBase):
     id: int
@@ -168,7 +170,7 @@ class TimetableEntry(TimetableEntryBase):
         from_attributes = True
 
 class TimetableBase(BaseModel):
-    section_id: int
+    section_id: Optional[int] = None
     semester: int
     status: str = "DRAFT"
 
@@ -178,6 +180,26 @@ class Timetable(TimetableBase):
     entries: List[TimetableEntry] = []
     class Config:
         from_attributes = True
+
+# --- Manual Entry Schemas ---
+class ManualEntryRequest(BaseModel):
+    section_id: int
+    semester: int
+    subject_id: int
+    faculty_id: Optional[int] = None
+    room_id: Optional[int] = None
+    timeslot_id: int
+    is_locked: bool = True
+
+class ManualEntryUpdate(BaseModel):
+    subject_id: Optional[int] = None
+    faculty_id: Optional[int] = None
+    room_id: Optional[int] = None
+    is_locked: Optional[bool] = None
+
+class RegenerateRequest(BaseModel):
+    section_id: int
+    semester: int
 
 # --- TimeSlot Schemas ---
 from datetime import time

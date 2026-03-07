@@ -9,6 +9,7 @@ import Subjects from './pages/Subjects';
 import Rooms from './pages/Rooms';
 import TimeSlots from './pages/TimeSlots';
 import Timetables from './pages/Timetables';
+import ManualTimetableEditor from './pages/ManualTimetableEditor';
 import Layout from './components/Layout';
 
 const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -34,6 +35,7 @@ function App() {
             <Route path="rooms" element={<Rooms />} />
             <Route path="timeslots" element={<TimeSlots />} />
             <Route path="timetables" element={<Timetables />} />
+            <Route path="timetable-editor" element={<ManualTimetableEditor />} />
           </Route>
 
           {/* Redirect root to admin */}

@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, Users, Building2, Calendar, BookOpen, LogOut } from 'lucide-react';
+import { LayoutDashboard, Users, Building2, Calendar, BookOpen, LogOut, Edit3 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 const Sidebar = () => {
@@ -14,6 +14,7 @@ const Sidebar = () => {
         // { icon: Building2, label: 'Rooms', path: '/admin/rooms' },
         // { icon: LayoutDashboard, label: 'Time Slots', path: '/admin/timeslots' }, 
         { icon: Calendar, label: 'Timetables', path: '/admin/timetables' },
+        { icon: Edit3, label: 'Schedule Editor', path: '/admin/timetable-editor' },
     ];
 
     return (

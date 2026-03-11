@@ -1,7 +1,12 @@
+import logging
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional, Any, Dict
 from scheduler import CSPSolver
+
+# Set up logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="TimeWise AI scheduler", version="0.1.0")
 
@@ -29,6 +34,6 @@ def optimize_schedule(request: OptimizationRequest):
         
         return {"status": "success", "schedule": schedule, "semester": request.semester}
     except Exception as e:
-        print(f"AI Engine Error: {e}")
+        logger.error(f"AI Engine Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 

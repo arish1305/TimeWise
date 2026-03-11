@@ -1,5 +1,10 @@
+import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+# Set up logging for the backend
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 from routers import auth, admin, timetable
 from database import engine, Base
@@ -14,9 +19,14 @@ from seed import seed
 def on_startup():
     seed()
 
+import os
+
+# Get allowed origins from environment variable, default to allowing all for backward compatibility in dev
+ALLOWED_ORIGINS = os.getenv("BACKEND_CORS_ORIGINS", "*").split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

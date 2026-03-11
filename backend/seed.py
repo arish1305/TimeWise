@@ -48,22 +48,21 @@ def seed():
         sec_b = Section(name="B", academic_year_id=year2.id, student_count=60)
         db.add_all([sec_a, sec_b])
 
-    # Faculty
-    # Check by Name for simplicity in seed (though ideal is ID Code)
-    if not db.query(Faculty).filter(Faculty.name == "Dr. Smith").first():
-        f1 = Faculty(name="Dr. Smith", faculty_type=FacultyType.PROFESSOR)
-        f1.departments.append(cse)
-        db.add(f1)
+    # Faculty - Commented out to prevent recreation after user deletion
+    # if not db.query(Faculty).filter(Faculty.name == "Dr. Smith").first():
+    #     f1 = Faculty(name="Dr. Smith", faculty_type=FacultyType.PROFESSOR)
+    #     f1.departments.append(cse)
+    #     db.add(f1)
     
-    if not db.query(Faculty).filter(Faculty.name == "Prof. Johnson").first():
-        f2 = Faculty(name="Prof. Johnson", faculty_type=FacultyType.ASSISTANT_PROFESSOR)
-        f2.departments.append(cse)
-        db.add(f2)
+    # if not db.query(Faculty).filter(Faculty.name == "Prof. Johnson").first():
+    #     f2 = Faculty(name="Prof. Johnson", faculty_type=FacultyType.ASSISTANT_PROFESSOR)
+    #     f2.departments.append(cse)
+    #     db.add(f2)
 
-        db.add_all([f1, f2])
-        if not cse.faculty: # Ensure relationship is populated
-             cse.faculty = [f1, f2]
-             db.commit()
+    #     db.add_all([f1, f2])
+    #     if not cse.faculty: # Ensure relationship is populated
+    #          cse.faculty = [f1, f2]
+    #          db.commit()
 
     # Fixed Time Slots (Mon-Fri)
     # 09:00 - 10:00 (Lecture)
@@ -207,51 +206,35 @@ def seed():
     sec_a = db.query(Section).filter(Section.name == "A").first()
     sec_b = db.query(Section).filter(Section.name == "B").first()
 
-    # Clear old assignments to avoid duplicates
-    db.query(FacultySubjectAssignment).delete()
-    db.commit()
+    # Assignments
+    # Helper to safely add assignment
+    def add_assignment_if_not_exists(faculty, subject, section_ids=None):
+        if not faculty or not subject:
+            return
+            
+        exists = db.query(FacultySubjectAssignment).filter(
+            FacultySubjectAssignment.faculty_id == faculty.id,
+            FacultySubjectAssignment.subject_id == subject.id
+        ).first()
+        
+        if not exists:
+            db.add(FacultySubjectAssignment(
+                faculty_id=faculty.id, 
+                subject_id=subject.id,
+                section_ids=section_ids
+            ))
 
     # Dr. Smith teaches multiple subjects to all sections
     if f_smith:
-        if dsa:
-            db.add(FacultySubjectAssignment(
-                faculty_id=f_smith.id, 
-                subject_id=dsa.id,
-                section_ids=None  # Available for all sections
-            ))
-        if os_sub:
-            db.add(FacultySubjectAssignment(
-                faculty_id=f_smith.id, 
-                subject_id=os_sub.id,
-                section_ids=None
-            ))
-        if se_sub:
-            db.add(FacultySubjectAssignment(
-                faculty_id=f_smith.id, 
-                subject_id=se_sub.id,
-                section_ids=None
-            ))
+        add_assignment_if_not_exists(f_smith, dsa)
+        add_assignment_if_not_exists(f_smith, os_sub)
+        add_assignment_if_not_exists(f_smith, se_sub)
             
     # Prof. Johnson teaches different subjects
     if f_johnson:
-        if db_sys:
-            db.add(FacultySubjectAssignment(
-                faculty_id=f_johnson.id, 
-                subject_id=db_sys.id,
-                section_ids=None
-            ))
-        if cn_sub:
-            db.add(FacultySubjectAssignment(
-                faculty_id=f_johnson.id, 
-                subject_id=cn_sub.id,
-                section_ids=None
-            ))
-        if wt_sub:
-            db.add(FacultySubjectAssignment(
-                faculty_id=f_johnson.id, 
-                subject_id=wt_sub.id,
-                section_ids=None
-            ))
+        add_assignment_if_not_exists(f_johnson, db_sys)
+        add_assignment_if_not_exists(f_johnson, cn_sub)
+        add_assignment_if_not_exists(f_johnson, wt_sub)
             
     db.commit()
     db.close()

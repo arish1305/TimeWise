@@ -37,6 +37,15 @@
     --radius-sm: 0.375rem;
     --radius-md: 0.5rem;
     --radius-lg: 1rem;
+
+    /* Semantic Aliases */
+    --primary-color: var(--primary-600);
+    --secondary-color: var(--secondary-500);
+    --background-color: var(--bg-app);
+    --text-primary: var(--text-main);
+    --text-secondary: var(--text-muted);
+    --border-color: var(--border-light);
+    --error-color: #ef4444;
 }
 
 /* Dark Mode Overrides */

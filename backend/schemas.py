@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 from typing import Optional, List
-from models import UserRole, RoomType, FacultyType, SubjectType
+from models import UserRole, RoomType, FacultyType, SubjectType, EntryCreator
 
 class UserBase(BaseModel):
     username: str
@@ -61,6 +61,12 @@ class SectionCreate(SectionBase):
 
 class Section(SectionBase):
     id: int
+    class Config:
+        from_attributes = True
+
+class SectionWithYear(SectionBase):
+    id: int
+    academic_year: Optional[AcademicYear] = None
     class Config:
         from_attributes = True
 
@@ -138,31 +144,62 @@ class GenerateTimetableRequest(BaseModel):
     section_id: int # Timetable is per section now
     academic_year_id: Optional[int] = None
 
+# Simpler Faculty schema for timetable entries (avoids circular refs)
+class FacultyBasic(BaseModel):
+    id: int
+    name: str
+    faculty_id_code: Optional[str] = None
+    class Config:
+        from_attributes = True
+
 class TimetableEntryBase(BaseModel):
     subject_id: int
-    faculty_id: Optional[int]
-    room_id: Optional[int]
+    faculty_id: Optional[int] = None
+    room_id: Optional[int] = None
     timeslot_id: int
+    is_locked: bool = False
+    created_by: str = EntryCreator.AI
 
 class TimetableEntry(TimetableEntryBase):
     id: int
     subject: Optional[Subject] = None
-    faculty: Optional[Faculty] = None
+    faculty: Optional[FacultyBasic] = None
     room: Optional[Room] = None
     timeslot: Optional['TimeSlot'] = None 
     class Config:
         from_attributes = True
 
 class TimetableBase(BaseModel):
-    section_id: int
+    section_id: Optional[int] = None
     semester: int
     status: str = "DRAFT"
 
 class Timetable(TimetableBase):
     id: int
+    section: Optional[SectionWithYear] = None
     entries: List[TimetableEntry] = []
     class Config:
         from_attributes = True
+
+# --- Manual Entry Schemas ---
+class ManualEntryRequest(BaseModel):
+    section_id: int
+    semester: int
+    subject_id: int
+    faculty_id: Optional[int] = None
+    room_id: Optional[int] = None
+    timeslot_id: int
+    is_locked: bool = True
+
+class ManualEntryUpdate(BaseModel):
+    subject_id: Optional[int] = None
+    faculty_id: Optional[int] = None
+    room_id: Optional[int] = None
+    is_locked: Optional[bool] = None
+
+class RegenerateRequest(BaseModel):
+    section_id: int
+    semester: int
 
 # --- TimeSlot Schemas ---
 from datetime import time

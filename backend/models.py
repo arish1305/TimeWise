@@ -24,6 +24,10 @@ class SubjectType(str, enum.Enum):
     THEORY = "THEORY"
     LAB = "LAB"
 
+class EntryCreator(str, enum.Enum):
+    ADMIN = "ADMIN"
+    AI = "AI"
+
 # Association for Many-to-Many: Faculty <-> Departments (if teaching across departments)
 # For now, we keep 1-to-many as primary, but prompt says "assign faculty to one or more departments".
 faculty_department_association = Table(
@@ -158,9 +162,11 @@ class TimetableEntry(Base):
     id = Column(Integer, primary_key=True, index=True)
     timetable_id = Column(Integer, ForeignKey("timetables.id"))
     subject_id = Column(Integer, ForeignKey("subjects.id"))
-    faculty_id = Column(Integer, ForeignKey("faculty.id"), nullable=True) # Could be null if free period?
+    faculty_id = Column(Integer, ForeignKey("faculty.id"), nullable=True)
     room_id = Column(Integer, ForeignKey("rooms.id"), nullable=True)
     timeslot_id = Column(Integer, ForeignKey("timeslots.id"))
+    is_locked = Column(Boolean, default=False)
+    created_by = Column(String, default=EntryCreator.AI)
     
     timetable = relationship("Timetable", back_populates="entries")
     subject = relationship("Subject")

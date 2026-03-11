@@ -12,19 +12,22 @@ engine = create_engine(DATABASE_URL)
 
 
 import time
+import logging
 from sqlalchemy.exc import OperationalError
+
+logger = logging.getLogger(__name__)
 
 def wait_for_db(retries=10, delay=2):
     for i in range(retries):
         try:
             # Try to connect
             with engine.connect() as conn:
-                print("Database connection successful!")
+                logger.info("Database connection successful!")
                 return
         except OperationalError:
-            print(f"Database unavailable, waiting {delay}s... ({i+1}/{retries})")
+            logger.warning(f"Database unavailable, waiting {delay}s... ({i+1}/{retries})")
             time.sleep(delay)
-    print("Could not connect to database after several retries.")
+    logger.error("Could not connect to database after several retries.")
 
 # Attempt connection before creating session/metadata
 wait_for_db()

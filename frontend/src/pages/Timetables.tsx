@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Calendar, RefreshCw, Filter, ChevronDown, Check, X, Clock, Users, BookOpen } from 'lucide-react';
+import { RefreshCw, Calendar, ChevronDown, Users, Filter, X, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import '../styles/Timetables.css';
 

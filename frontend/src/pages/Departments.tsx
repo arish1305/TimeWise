@@ -6,12 +6,13 @@ import { motion, AnimatePresence } from 'framer-motion';
 // Types
 interface Section { id: number; name: string; student_count: number; academic_year_id: number; }
 interface AcademicYear { id: number; name: string; level: number; department_id: number; sections?: Section[]; }
-interface Subject { id: number; name: string; code: string; semester: number; weekly_hours: number; department_id: number; }
+interface TimeSlot { id: number; day: string; start_time: string; end_time: string; label?: string; }
+interface Subject { id: number; name: string; code: string; semester: number; weekly_hours: number; department_id: number; manual_timeslot_ids?: number[]; }
 interface Department { id: number; name: string; code: string; years?: AcademicYear[]; subjects?: Subject[]; }
 
 const Departments = () => {
     const [departments, setDepartments] = useState<Department[]>([]);
-    const [loading, setLoading] = useState(false);
+    const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([]);
 
     // UI State
     const [expandedDept, setExpandedDept] = useState<number | null>(null);
@@ -32,22 +33,30 @@ const Departments = () => {
 
     const [showSubjectForm, setShowSubjectForm] = useState<number | null>(null); // deptId
     const [editingSubjectId, setEditingSubjectId] = useState<number | null>(null);
-    const [newSubject, setNewSubject] = useState({ name: '', code: '', semester: 1, weekly_hours: 3 });
+    const [newSubject, setNewSubject] = useState({ name: '', code: '', semester: 1, weekly_hours: 3, manual_timeslot_ids: [] as number[] });
 
     useEffect(() => {
         fetchDepartments();
+        fetchTimeSlots();
     }, []);
 
     const fetchDepartments = async () => {
-        setLoading(true);
         try {
             const res = await api.get('/admin/departments');
             setDepartments(res.data);
         } catch (err) {
             console.error(err);
             // alert("Failed to fetch departments. Check backend connection.");
-        } finally {
-            setLoading(false);
+        }
+    };
+
+    const fetchTimeSlots = async () => {
+        try {
+            const res = await api.get('/admin/timeslots');
+            // Allow manual timing only for non-break slots
+            setTimeSlots(res.data.filter((t: any) => !t.is_break));
+        } catch (err) {
+            console.error("Failed to fetch timeslots", err);
         }
     };
 
@@ -200,7 +209,11 @@ const Departments = () => {
 
     const saveSubject = async (deptId: number) => {
         try {
-            const payload = { ...newSubject, department_id: deptId };
+            const payload = {
+                ...newSubject,
+                department_id: deptId,
+                manual_timeslot_ids: newSubject.manual_timeslot_ids
+            };
             if (editingSubjectId) {
                 await api.put(`/admin/subjects/${editingSubjectId}`, payload);
             } else {
@@ -216,7 +229,13 @@ const Departments = () => {
     };
 
     const startEditSubject = (sub: Subject, deptId: number) => {
-        setNewSubject({ name: sub.name, code: sub.code, semester: sub.semester, weekly_hours: sub.weekly_hours });
+        setNewSubject({
+            name: sub.name,
+            code: sub.code,
+            semester: sub.semester,
+            weekly_hours: sub.weekly_hours,
+            manual_timeslot_ids: sub.manual_timeslot_ids || []
+        });
         setEditingSubjectId(sub.id);
         setShowSubjectForm(deptId);
     };
@@ -310,7 +329,7 @@ const Departments = () => {
                                                 </h4>
                                                 <button className="btn" style={{ fontSize: '0.8rem', padding: '0.2rem 0.6rem' }} onClick={() => {
                                                     setEditingSubjectId(null);
-                                                    setNewSubject({ name: '', code: '', semester: 1, weekly_hours: 3 });
+                                                    setNewSubject({ name: '', code: '', semester: 1, weekly_hours: 3, manual_timeslot_ids: [] });
                                                     setShowSubjectForm(dept.id);
                                                 }}>
                                                     <Plus size={16} /> Add Subject
@@ -318,13 +337,43 @@ const Departments = () => {
                                             </div>
 
                                             {showSubjectForm === dept.id && (
-                                                <div className="input-group" style={{ flexDirection: 'row', alignItems: 'center', background: 'white', padding: '1rem', borderRadius: '8px', border: '1px solid var(--primary-200)', marginBottom: '1rem' }}>
-                                                    <input className="input-field" placeholder="Subject Name" value={newSubject.name} onChange={e => setNewSubject({ ...newSubject, name: e.target.value })} />
-                                                    <input className="input-field" placeholder="Code (CS101)" value={newSubject.code} onChange={e => setNewSubject({ ...newSubject, code: e.target.value })} style={{ width: 120 }} />
+                                                <div className="input-group" style={{ flexDirection: 'row', alignItems: 'center', background: 'white', padding: '1rem', borderRadius: '8px', border: '1px solid var(--primary-200)', marginBottom: '1rem', flexWrap: 'wrap' }}>
+                                                    <input className="input-field" placeholder="Subject Name" value={newSubject.name} onChange={e => setNewSubject({ ...newSubject, name: e.target.value })} style={{ flex: 1, minWidth: 150 }} />
+                                                    <input className="input-field" placeholder="Code (CS101)" value={newSubject.code} onChange={e => setNewSubject({ ...newSubject, code: e.target.value })} style={{ width: 100 }} />
                                                     <input type="number" className="input-field" placeholder="Sem" value={isNaN(newSubject.semester) ? '' : newSubject.semester} onChange={e => setNewSubject({ ...newSubject, semester: parseInt(e.target.value) })} style={{ width: 60 }} />
                                                     <input type="number" className="input-field" placeholder="Hrs/Wk" value={isNaN(newSubject.weekly_hours) ? '' : newSubject.weekly_hours} onChange={e => setNewSubject({ ...newSubject, weekly_hours: parseInt(e.target.value) })} style={{ width: 80 }} />
-                                                    <button className="btn btn-primary" onClick={() => saveSubject(dept.id)}>Save</button>
-                                                    <button className="btn" onClick={() => { setShowSubjectForm(null); setEditingSubjectId(null); }}>Cancel</button>
+                                                    <div style={{ display: 'flex', flexDirection: 'column', width: '100%', marginTop: '0.5rem' }}>
+                                                        <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '4px' }}>Manual Timeslots (Optional)</label>
+                                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', maxHeight: '120px', overflowY: 'auto', border: '1px solid #e2e8f0', padding: '0.5rem', borderRadius: '4px' }}>
+                                                            {timeSlots.map(t => {
+                                                                const isSelected = newSubject.manual_timeslot_ids.includes(t.id);
+                                                                return (
+                                                                    <div
+                                                                        key={t.id}
+                                                                        onClick={() => {
+                                                                            if (isSelected) {
+                                                                                setNewSubject({ ...newSubject, manual_timeslot_ids: newSubject.manual_timeslot_ids.filter(id => id !== t.id) });
+                                                                            } else {
+                                                                                setNewSubject({ ...newSubject, manual_timeslot_ids: [...newSubject.manual_timeslot_ids, t.id] });
+                                                                            }
+                                                                        }}
+                                                                        style={{
+                                                                            fontSize: '0.75rem', padding: '3px 8px', borderRadius: '12px', cursor: 'pointer',
+                                                                            background: isSelected ? 'var(--primary-500)' : '#f1f5f9',
+                                                                            color: isSelected ? 'white' : 'inherit',
+                                                                            border: isSelected ? '1px solid var(--primary-600)' : '1px solid #cbd5e1'
+                                                                        }}
+                                                                    >
+                                                                        {t.day.substring(0, 3)} {t.start_time.substring(0, 5)}
+                                                                    </div>
+                                                                )
+                                                            })}
+                                                        </div>
+                                                    </div>
+                                                    <div style={{ width: '100%', marginTop: '0.5rem', display: 'flex', gap: '0.5rem' }}>
+                                                        <button className="btn btn-primary" onClick={() => saveSubject(dept.id)}>Save</button>
+                                                        <button className="btn" onClick={() => { setShowSubjectForm(null); setEditingSubjectId(null); }}>Cancel</button>
+                                                    </div>
                                                 </div>
                                             )}
 
@@ -339,6 +388,11 @@ const Departments = () => {
                                                             </div>
                                                             <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>
                                                                 Semester {sub.semester} • {sub.weekly_hours} hrs/week
+                                                                {sub.manual_timeslot_ids && sub.manual_timeslot_ids.length > 0 && (
+                                                                    <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 4, color: 'var(--warning-color)', fontWeight: 600 }}>
+                                                                        <span>📌 Manual Time: {sub.manual_timeslot_ids.length} Scheduled</span>
+                                                                    </div>
+                                                                )}
                                                             </div>
                                                             <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
                                                                 <button className="btn" style={{ padding: '0.3rem', color: 'var(--text-muted)' }} onClick={() => startEditSubject(sub, dept.id)}>

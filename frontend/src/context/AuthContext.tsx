@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState } from 'react';
+import type { ReactNode } from 'react';
 
 interface AuthContextType {
     user: any;
@@ -10,14 +11,14 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    // Hardcode authenticated state
-    const [user, setUser] = useState<any>({ username: 'admin' });
-    const [isAuthenticated, setIsAuthenticated] = useState<boolean>(true);
-    const [role, setRole] = useState<string | null>('ADMIN');
+export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+    // Basic state for future auth integration
+    const [user] = useState<any>(null);
+    const [isAuthenticated] = useState(false);
+    const [role] = useState<string | null>(null);
 
-    const login = (token: string) => {
-        // No-op
+    const login = async () => {
+        // Implement login
         console.log("Login called (disabled)");
     };
 

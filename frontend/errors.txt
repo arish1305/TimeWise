@@ -1,0 +1,8 @@
+src/pages/AdminDashboard.tsx(1,1): error TS6133: 'React' is declared but its value is never read.
+src/pages/Timetables.tsx(3,10): error TS6133: 'Download' is declared but its value is never read.
+src/pages/Timetables.tsx(3,41): error TS6133: 'Trash2' is declared but its value is never read.
+src/pages/Timetables.tsx(3,49): error TS6133: 'CheckCircle' is declared but its value is never read.
+src/pages/Timetables.tsx(3,62): error TS6133: 'AlertCircle' is declared but its value is never read.
+src/pages/Timetables.tsx(3,75): error TS6133: 'Play' is declared but its value is never read.
+src/pages/Timetables.tsx(3,119): error TS6133: 'Clock' is declared but its value is never read.
+src/pages/Timetables.tsx(3,126): error TS6133: 'BookOpen' is declared but its value is never read.

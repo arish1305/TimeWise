@@ -5,7 +5,6 @@ import { AuthProvider } from './context/AuthContext';
 import AdminDashboard from './pages/AdminDashboard';
 import Departments from './pages/Departments';
 import Faculty from './pages/Faculty';
-import Subjects from './pages/Subjects';
 import Rooms from './pages/Rooms';
 import TimeSlots from './pages/TimeSlots';
 import Timetables from './pages/Timetables';
@@ -30,7 +29,6 @@ function App() {
             <Route index element={<AdminDashboard />} />
             <Route path="departments" element={<Departments />} />
             <Route path="faculty" element={<Faculty />} />
-            <Route path="subjects" element={<Subjects />} />
             <Route path="rooms" element={<Rooms />} />
             <Route path="timeslots" element={<TimeSlots />} />
             <Route path="timetables" element={<Timetables />} />

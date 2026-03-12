@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, Users, Building2, Calendar, BookOpen } from 'lucide-react';
+import { LayoutDashboard, Users, Building2, Calendar } from 'lucide-react';
 
 const Sidebar = () => {
     // const { logout } = useAuth();
@@ -8,7 +8,6 @@ const Sidebar = () => {
         { icon: LayoutDashboard, label: 'Dashboard', path: '/admin' },
         { icon: Building2, label: 'Departments', path: '/admin/departments' },
         { icon: Users, label: 'Faculty', path: '/admin/faculty' },
-        { icon: BookOpen, label: 'Subjects', path: '/admin/subjects' },
         // { icon: Building2, label: 'Rooms', path: '/admin/rooms' },
         // { icon: LayoutDashboard, label: 'Time Slots', path: '/admin/timeslots' }, 
         { icon: Calendar, label: 'Timetables', path: '/admin/timetables' },

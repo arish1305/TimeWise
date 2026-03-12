@@ -290,9 +290,9 @@ def generate_timetable(request: schemas.GenerateTimetableRequest, db: Session = 
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/generate-all")
-def generate_all_timetables(semester: Optional[int] = 3, db: Session = Depends(get_db)):
+def generate_all_timetables(db: Session = Depends(get_db)):
     """
-    Generates timetables for ALL sections across all departments.
+    Generates timetables for ALL sections across all departments using available subjects.
     Returns summary of generation results.
     """
     # Fetch all sections
@@ -302,13 +302,15 @@ def generate_all_timetables(semester: Optional[int] = 3, db: Session = Depends(g
         raise HTTPException(status_code=404, detail="No sections found in database")
     
     results = {
-        "total": len(all_sections),
+        "total": len(all_sections), # Will update with actual timetable attempts
         "generated": 0,
         "failed": 0,
         "errors": [],
         "timetables": []
     }
     
+    total_attempts = 0
+
     for section in all_sections:
         try:
             # Get department via academic year
@@ -324,10 +326,9 @@ def generate_all_timetables(semester: Optional[int] = 3, db: Session = Depends(g
             
             department_id = academic_year.department_id
             
-            # Fetch subjects for this department and semester
+            # Fetch ALL subjects for this department
             subjects = db.query(models.Subject).filter(
-                models.Subject.department_id == department_id,
-                models.Subject.semester == semester
+                models.Subject.department_id == department_id
             ).all()
             
             if not subjects:
@@ -335,64 +336,98 @@ def generate_all_timetables(semester: Optional[int] = 3, db: Session = Depends(g
                 results["errors"].append({
                     "section_id": section.id,
                     "section_name": section.name,
-                    "error": f"No subjects found for semester {semester}"
+                    "error": "No subjects found for department"
                 })
                 continue
             
-            # Delete existing timetable for this section if any
-            existing = db.query(models.Timetable).filter(
-                models.Timetable.section_id == section.id,
-                models.Timetable.semester == semester
-            ).first()
-            
-            if existing:
-                # Delete entries first
-                db.query(models.TimetableEntry).filter(
-                    models.TimetableEntry.timetable_id == existing.id
-                ).delete()
-                db.delete(existing)
-                db.commit()
-            
-            # Create new timetable
-            new_timetable = models.Timetable(
-                section_id=section.id,
-                semester=semester,
-                status="ACTIVE"
-            )
-            db.add(new_timetable)
-            db.commit()
-            db.refresh(new_timetable)
-            
-            # Fetch timeslots
-            timeslots = db.query(models.TimeSlot).filter(models.TimeSlot.is_break == False).all()
-            
-            if not timeslots:
+            # Group eligible subjects by semester
+            semester_subjects = {}
+            for subject in subjects:
+                # Find eligible faculty for this subject and section
+                assigns = db.query(models.FacultySubjectAssignment).filter(
+                    models.FacultySubjectAssignment.subject_id == subject.id
+                ).all()
+                
+                is_eligible = False
+                faculty_id = None
+                
+                if not assigns:
+                    is_eligible = True # Treat as eligible but no faculty assigned yet
+                else:
+                    for a in assigns:
+                        if not a.section_ids or section.id in a.section_ids:
+                            is_eligible = True
+                            faculty_id = a.faculty_id
+                            break
+                            
+                if is_eligible:
+                    sem = subject.semester
+                    if sem not in semester_subjects:
+                        semester_subjects[sem] = []
+                    semester_subjects[sem].append({
+                        "subject": subject,
+                        "faculty_id": faculty_id
+                    })
+                    
+            if not semester_subjects:
                 results["failed"] += 1
                 results["errors"].append({
                     "section_id": section.id,
                     "section_name": section.name,
-                    "error": "No timeslots available"
+                    "error": "No eligible subjects for this section"
                 })
-                db.delete(new_timetable)
-                db.commit()
                 continue
-            
-            # Allocate subjects to timeslots
-            allocated_slots = set()
-            
-            # Pre-allocate manual entries from subjects
-            for subject in subjects:
-                manual_slots = getattr(subject, 'manual_timeslot_ids', []) or []
-                if manual_slots:
-                    # Find eligible faculty
-                    assigns = db.query(models.FacultySubjectAssignment).filter(
-                        models.FacultySubjectAssignment.subject_id == subject.id
-                    ).all()
-                    fid = None
-                    for a in assigns:
-                        if not a.section_ids or section.id in a.section_ids:
-                            fid = a.faculty_id
-                            break
+
+            # For each semester group, generate a timetable
+            for sem, eligible_data in semester_subjects.items():
+                total_attempts += 1
+                
+                # Delete existing timetable for this section and semester if any
+                existing = db.query(models.Timetable).filter(
+                    models.Timetable.section_id == section.id,
+                    models.Timetable.semester == sem
+                ).first()
+                
+                if existing:
+                    # Delete entries first
+                    db.query(models.TimetableEntry).filter(
+                        models.TimetableEntry.timetable_id == existing.id
+                    ).delete()
+                    db.delete(existing)
+                    db.commit()
+                
+                # Create new timetable
+                new_timetable = models.Timetable(
+                    section_id=section.id,
+                    semester=sem,
+                    status="ACTIVE"
+                )
+                db.add(new_timetable)
+                db.commit()
+                db.refresh(new_timetable)
+                
+                # Fetch timeslots
+                timeslots = db.query(models.TimeSlot).filter(models.TimeSlot.is_break == False).all()
+                
+                if not timeslots:
+                    results["failed"] += 1
+                    results["errors"].append({
+                        "section_id": section.id,
+                        "section_name": section.name,
+                        "error": "No timeslots available"
+                    })
+                    db.delete(new_timetable)
+                    db.commit()
+                    continue
+                
+                # Allocate subjects to timeslots
+                allocated_slots = set()
+                
+                # Pre-allocate manual entries from subjects
+                for item in eligible_data:
+                    subject = item["subject"]
+                    fid = item["faculty_id"]
+                    manual_slots = getattr(subject, 'manual_timeslot_ids', []) or []
                     
                     for timeslot_id in manual_slots:
                         if timeslot_id not in allocated_slots:
@@ -406,70 +441,55 @@ def generate_all_timetables(semester: Optional[int] = 3, db: Session = Depends(g
                             )
                             db.add(entry)
                             allocated_slots.add(timeslot_id)
-            db.commit()
-
-            for subject in subjects:
-                # To be completely accurate, we subtract hours for the manual slots.
-                hours_needed = subject.weekly_hours
-                manual_slots = getattr(subject, 'manual_timeslot_ids', []) or []
-                hours_needed -= len(manual_slots)
-                
-                if hours_needed <= 0:
-                    continue
-                
-                # Get faculty assigned to this subject for this section
-                eligible_assignments = db.query(models.FacultySubjectAssignment).filter(
-                    models.FacultySubjectAssignment.subject_id == subject.id
-                ).all()
-                
-                # Filter by section assignment
-                section_eligible = []
-                for assignment in eligible_assignments:
-                    if assignment.section_ids is None or not assignment.section_ids:
-                        section_eligible.append(assignment)
-                    elif section.id in assignment.section_ids:
-                        section_eligible.append(assignment)
-                
-                assigned_faculty = None
-                if section_eligible:
-                    assignment = random.choice(section_eligible)
-                    assigned_faculty = db.query(models.Faculty).get(assignment.faculty_id)
-                
-                # Allocate timeslots
-                attempts = 0
-                while hours_needed > 0 and attempts < 100:
-                    attempts += 1
-                    slot = random.choice(timeslots)
+                db.commit()
+    
+                for item in eligible_data:
+                    subject = item["subject"]
+                    assigned_faculty_id = item["faculty_id"]
                     
-                    if slot.id in allocated_slots or slot.id in (getattr(subject, 'manual_timeslot_ids', []) or []):
-                        continue
-                    
-                    # Create entry
-                    entry = models.TimetableEntry(
-                        timetable_id=new_timetable.id,
-                        timeslot_id=slot.id,
-                        subject_id=subject.id,
-                        faculty_id=assigned_faculty.id if assigned_faculty else None,
-                        is_locked=False,
-                        created_by=models.EntryCreator.AI
-                    )
-                    db.add(entry)
-                    allocated_slots.add(slot.id)
-                    hours_needed -= 1
+                    hours_needed = subject.weekly_hours
+                    manual_slots = getattr(subject, 'manual_timeslot_ids', []) or []
+                    hours_needed -= len(manual_slots)
                     
                     if hours_needed <= 0:
-                        break
-            
-            db.commit()
-            
-            results["generated"] += 1
-            results["timetables"].append({
-                "timetable_id": new_timetable.id,
-                "section_id": section.id,
-                "section_name": section.name,
-                "year": academic_year.name
-            })
-            
+                        continue
+                    
+                    # Allocate timeslots
+                    attempts = 0
+                    while hours_needed > 0 and attempts < 100:
+                        attempts += 1
+                        slot = random.choice(timeslots)
+                        
+                        if slot.id in allocated_slots or slot.id in (getattr(subject, 'manual_timeslot_ids', []) or []):
+                            continue
+                        
+                        # Create entry
+                        entry = models.TimetableEntry(
+                            timetable_id=new_timetable.id,
+                            timeslot_id=slot.id,
+                            subject_id=subject.id,
+                            faculty_id=assigned_faculty_id,
+                            is_locked=False,
+                            created_by=models.EntryCreator.AI
+                        )
+                        db.add(entry)
+                        allocated_slots.add(slot.id)
+                        hours_needed -= 1
+                        
+                        if hours_needed <= 0:
+                            break
+                
+                db.commit()
+                
+                results["generated"] += 1
+                results["timetables"].append({
+                    "timetable_id": new_timetable.id,
+                    "section_id": section.id,
+                    "section_name": section.name,
+                    "year": academic_year.name,
+                    "semester": sem
+                })
+                
         except Exception as e:
             results["failed"] += 1
             results["errors"].append({
@@ -479,7 +499,8 @@ def generate_all_timetables(semester: Optional[int] = 3, db: Session = Depends(g
             })
             db.rollback()
             continue
-    
+            
+    results["total"] = total_attempts if total_attempts > 0 else len(all_sections)
     return results
 
 
@@ -521,3 +542,16 @@ def get_timetable(timetable_id: int, db: Session = Depends(get_db)):
     if not tt:
         raise HTTPException(status_code=404, detail="Timetable not found")
     return tt
+
+@router.delete("/clear-all")
+def clear_all_timetables(db: Session = Depends(get_db)):
+    """Deletes all timetables and their entries from the system."""
+    try:
+        db.query(models.TimetableEntry).delete()
+        db.query(models.Timetable).delete()
+        db.commit()
+        return {"status": "success", "message": "All timetables cleared successfully."}
+    except Exception as e:
+        db.rollback()
+        print(f"Server Error clearing timetables: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

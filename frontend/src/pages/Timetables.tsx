@@ -135,9 +135,7 @@ const Timetables = () => {
         setError(null);
 
         try {
-            const res = await axiosInstance.post('/timetables/generate-all', null, {
-                params: { semester: Number(semester) }
-            });
+            const res = await axiosInstance.post('/timetables/generate-all');
             setBulkResults(res.data);
             // Auto-fetch all timetables after generation
             fetchAllTimetables();
@@ -306,35 +304,38 @@ const Timetables = () => {
 
     return (
         <div className="animate-fade-in page-container">
-            <div className="page-header">
-                <h1>
-                    <span className="icon-wrapper">
-                        <Calendar size={24} />
-                    </span>
+            <div style={{ marginBottom: '2.5rem' }}>
+                <h1 style={{ fontSize: '2rem', fontWeight: 800, margin: '0 0 0.5rem 0', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    <div style={{ background: 'var(--primary-100)', color: 'var(--primary-600)', padding: '0.5rem', borderRadius: 'var(--radius-md)' }}>
+                        <Calendar size={28} />
+                    </div>
                     Timetable Generator
                 </h1>
-                <p>Generate and manage academic schedules with ease.</p>
+                <p style={{ color: 'var(--text-muted)', fontSize: '1.1rem', margin: 0 }}>
+                    Select a target section to generate a conflict-free AI schedule, or batch-generate for all sections.
+                </p>
             </div>
 
             {/* Controls Card */}
             <div className="card controls-card">
                 <div className="controls-grid">
-                    <div className="input-group">
+                    <div className="input-group" style={{ marginBottom: 0 }}>
                         <label className="input-label">Department</label>
                         <div className="select-wrapper">
                             <select
                                 className="input-field"
                                 value={selectedDept}
                                 onChange={(e) => handleDeptChange(e.target.value)}
+                                style={{ width: '100%', boxSizing: 'border-box', appearance: 'none' }}
                             >
-                                <option value="">Select Department</option>
+                                <option value="">Select</option>
                                 {departments.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
                             </select>
                             <ChevronDown className="select-icon" size={16} />
                         </div>
                     </div>
 
-                    <div className="input-group">
+                    <div className="input-group" style={{ marginBottom: 0 }}>
                         <label className="input-label">Year</label>
                         <div className="select-wrapper">
                             <select
@@ -342,6 +343,7 @@ const Timetables = () => {
                                 value={selectedYear}
                                 onChange={(e) => handleYearChange(e.target.value)}
                                 disabled={!selectedDept}
+                                style={{ width: '100%', boxSizing: 'border-box', appearance: 'none' }}
                             >
                                 <option value="">Select Year</option>
                                 {academicYears.map((y: any) => <option key={y.id} value={y.id}>{y.name}</option>)}
@@ -350,7 +352,7 @@ const Timetables = () => {
                         </div>
                     </div>
 
-                    <div className="input-group">
+                    <div className="input-group" style={{ marginBottom: 0 }}>
                         <label className="input-label">Section</label>
                         <div className="select-wrapper">
                             <select
@@ -358,6 +360,7 @@ const Timetables = () => {
                                 value={selectedSection}
                                 onChange={(e) => setSelectedSection(e.target.value)}
                                 disabled={!selectedYear}
+                                style={{ width: '100%', boxSizing: 'border-box', appearance: 'none' }}
                             >
                                 <option value="">Select Section</option>
                                 {sections.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}
@@ -366,7 +369,7 @@ const Timetables = () => {
                         </div>
                     </div>
 
-                    <div className="input-group">
+                    <div className="input-group" style={{ marginBottom: 0 }}>
                         <label className="input-label">Semester</label>
                         <div className="select-wrapper">
                             <input
@@ -375,6 +378,7 @@ const Timetables = () => {
                                 value={semester}
                                 onChange={(e) => setSemester(parseInt(e.target.value))}
                                 min="1" max="8"
+                                style={{ width: '100%', boxSizing: 'border-box' }}
                             />
                         </div>
                     </div>
@@ -383,19 +387,26 @@ const Timetables = () => {
                         className="btn btn-primary generate-btn"
                         onClick={generateTimetable}
                         disabled={loading || !selectedSection}
+                        style={{ height: '42px', marginTop: 'auto' }}
                     >
                         {loading ? <RefreshCw className="animate-spin" size={18} /> : <RefreshCw size={18} />}
-                        Generate
+                        Generate Standard
                     </button>
                 </div>
+            </div>
 
-                {/* Divider */}
-                <div className="divider">
-                    <span>OR</span>
-                </div>
-
-                {/* Bulk Generation */}
-                <div className="bulk-actions">
+            {/* Bulk Generation / Power Tools Card */}
+            <div className="card bulk-actions-card animate-fade-in delay-100">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+                    <div>
+                        <h3 style={{ margin: '0 0 0.25rem 0', fontSize: '1.1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <Users size={20} color="var(--primary-600)" />
+                            Power Actions
+                        </h3>
+                        <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+                            Automatically generate timetables for ALL sections using available department data. Existing data will be overwritten.
+                        </p>
+                    </div>
                     <div className="action-buttons">
                         <button
                             className="btn btn-gradient"
@@ -421,14 +432,12 @@ const Timetables = () => {
                                 fetchAllTimetables();
                                 setShowAllTimetables(true);
                             }}
+                            style={{ background: 'white' }}
                         >
-                            <Filter size={20} />
-                            View All Timetables
+                            <Filter size={18} />
+                            View History
                         </button>
                     </div>
-                    <p className="help-text">
-                        Automatically generate timetables for all sections (Semester {semester})
-                    </p>
                 </div>
             </div>
 
@@ -445,9 +454,25 @@ const Timetables = () => {
                         >
                             <div className="modal-header">
                                 <h3>All Generated Timetables</h3>
-                                <button className="btn-icon" onClick={() => setShowAllTimetables(false)}>
-                                    <X size={20} />
-                                </button>
+                                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                    <button
+                                        className="btn btn-outline"
+                                        style={{ borderColor: 'var(--error-color)', color: 'var(--error-color)', padding: '0.25rem 0.75rem', fontSize: '0.8rem' }}
+                                        onClick={async () => {
+                                            if (window.confirm("Are you sure you want to clear all timetables history?")) {
+                                                try {
+                                                    await axiosInstance.delete('/timetables/clear-all');
+                                                    fetchAllTimetables();
+                                                } catch (e) { console.error("Failed to clear", e) }
+                                            }
+                                        }}
+                                    >
+                                        <X size={14} style={{ marginRight: '0.25rem' }} /> Clear History
+                                    </button>
+                                    <button className="btn-icon" onClick={() => setShowAllTimetables(false)}>
+                                        <X size={20} />
+                                    </button>
+                                </div>
                             </div>
 
                             <div className="modal-body">
@@ -549,9 +574,10 @@ const Timetables = () => {
                         className="card empty-placeholder"
                     >
                         <div className="icon-circle">
-                            <Filter size={32} />
+                            <Calendar size={32} />
                         </div>
-                        <p>Configure parameters above to generate a timetable</p>
+                        <h3 style={{ margin: '0 0 0.5rem 0', color: 'var(--text-primary)' }}>No Timetable Active</h3>
+                        <p style={{ margin: 0 }}>Configure parameters above and click generate to view the schedule.</p>
                     </motion.div>
                 )}
             </AnimatePresence>

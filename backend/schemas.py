@@ -94,6 +94,7 @@ class SubjectBase(BaseModel):
     subject_type: SubjectType = SubjectType.THEORY
     weekly_hours: int = 3
     continuous_hours: int = 1
+    manual_timeslot_ids: List[int] = []
 
 class SubjectCreate(SubjectBase):
     pass

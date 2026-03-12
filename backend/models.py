@@ -91,6 +91,7 @@ class Subject(Base):
     subject_type = Column(String, default=SubjectType.THEORY)
     weekly_hours = Column(Integer, default=3) # Total hours per week
     continuous_hours = Column(Integer, default=1) # e.g., 3 hours block for Labs
+    manual_timeslot_ids = Column(JSON, default=list) # Array of timeslot IDs for manually set timings
     
     department = relationship("Department", back_populates="subjects")
     eligible_faculty = relationship("FacultySubjectAssignment", back_populates="subject")

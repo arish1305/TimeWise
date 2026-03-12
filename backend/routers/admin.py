@@ -164,6 +164,7 @@ def update_subject(subject_id: int, subject: schemas.SubjectCreate, db: Session 
     db_subject.subject_type = subject.subject_type
     db_subject.weekly_hours = subject.weekly_hours
     db_subject.continuous_hours = subject.continuous_hours
+    db_subject.manual_timeslot_ids = subject.manual_timeslot_ids
     
     db.commit()
     db.refresh(db_subject)

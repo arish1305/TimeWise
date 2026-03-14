@@ -92,6 +92,9 @@ class Subject(Base):
     weekly_hours = Column(Integer, default=3) # Total hours per week
     continuous_hours = Column(Integer, default=1) # e.g., 3 hours block for Labs
     manual_timeslot_ids = Column(JSON, default=list) # Array of timeslot IDs for manually set timings
+    is_elective = Column(Boolean, default=False)
+    elective_group_id = Column(String, nullable=True) # e.g., "PE-1"
+    allowed_department_ids = Column(JSON, default=list) # List of other department IDs allowed to take this subject
     
     department = relationship("Department", back_populates="subjects")
     eligible_faculty = relationship("FacultySubjectAssignment", back_populates="subject")

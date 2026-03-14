@@ -133,10 +133,10 @@ def read_rooms(skip: int = 0, limit: int = 100, db: Session = Depends(database.g
 # --- Subjects ---
 @router.post("/subjects", response_model=schemas.Subject)
 def create_subject(subject: schemas.SubjectCreate, db: Session = Depends(database.get_db)):
-    # Verify department exists
+    # Verify primary department exists
     dept = db.query(models.Department).filter(models.Department.id == subject.department_id).first()
     if not dept:
-        raise HTTPException(status_code=404, detail="Department not found")
+        raise HTTPException(status_code=404, detail="Primary Department not found")
 
     db_subject = models.Subject(**subject.dict())
     db.add(db_subject)
@@ -165,6 +165,9 @@ def update_subject(subject_id: int, subject: schemas.SubjectCreate, db: Session 
     db_subject.weekly_hours = subject.weekly_hours
     db_subject.continuous_hours = subject.continuous_hours
     db_subject.manual_timeslot_ids = subject.manual_timeslot_ids
+    db_subject.is_elective = subject.is_elective
+    db_subject.elective_group_id = subject.elective_group_id
+    db_subject.allowed_department_ids = subject.allowed_department_ids
     
     db.commit()
     db.refresh(db_subject)

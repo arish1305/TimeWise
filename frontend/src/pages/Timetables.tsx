@@ -175,9 +175,12 @@ const Timetables = () => {
 
         const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
 
-        const entryMap: any = {};
+        const entryMap: Record<number, any[]> = {};
         timetable.entries.forEach((entry: any) => {
-            entryMap[entry.timeslot_id] = entry;
+            if (!entryMap[entry.timeslot_id]) {
+                entryMap[entry.timeslot_id] = [];
+            }
+            entryMap[entry.timeslot_id].push(entry);
         });
 
         const uniqueTimes: any[] = [];
@@ -274,18 +277,23 @@ const Timetables = () => {
                                         }
 
                                         const slot = timeSlots.find((ts: any) => ts.day === day && ts.start_time === t.start);
-                                        const entry = slot ? entryMap[slot.id] : null;
+                                        const entries = slot ? entryMap[slot.id] : null;
 
                                         return (
-                                            <td key={timeIdx} className={`timetable-cell ${entry ? 'cell-filled' : 'cell-empty'}`}>
-                                                {entry ? (
+                                            <td key={timeIdx} className={`timetable-cell ${entries ? 'cell-filled' : 'cell-empty'}`}>
+                                                {entries ? (
                                                     <div className="cell-content">
-                                                        <div className="subject-code" title={entry.subject?.name}>
-                                                            {entry.subject?.code || 'N/A'}
-                                                        </div>
-                                                        <div className="faculty-badge" title={entry.faculty?.name || "Unassigned"}>
-                                                            {entry.faculty?.name || "Unassigned"}
-                                                        </div>
+                                                        {entries.map((entry, idx) => (
+                                                            <div key={idx} style={{ 
+                                                                borderBottom: idx < entries.length - 1 ? '1px solid var(--border-light)' : 'none', 
+                                                                paddingBottom: idx < entries.length - 1 ? '4px' : 0, 
+                                                                marginBottom: idx < entries.length - 1 ? '4px' : 0 
+                                                            }}>
+                                                                <div className="subject-code" title={`${entry.subject?.name} - ${entry.faculty?.name || "Unassigned"}`} style={{ fontSize: entries.length > 1 ? '0.75rem' : '0.85rem', fontWeight: 700 }}>
+                                                                    {entry.subject?.code || 'N/A'} {entry.subject?.is_elective && entry.subject.elective_group_id ? `(${entry.subject.elective_group_id})` : ''}
+                                                                </div>
+                                                            </div>
+                                                        ))}
                                                     </div>
                                                 ) : (
                                                     <div className="cell-content"></div>
@@ -297,6 +305,41 @@ const Timetables = () => {
                             ))}
                         </tbody>
                     </table>
+                </div>
+
+                {/* Faculty Legend */}
+                <div className="faculty-legend card" style={{ marginTop: '2rem', padding: '1.5rem' }}>
+                    <h3 style={{ margin: '0 0 1rem 0', display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '1.1rem' }}>
+                        <Users size={20} color="var(--primary-600)" />
+                        Faculty & Elective Mapping
+                    </h3>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '1rem' }}>
+                        {(() => {
+                            const facultyMap: Record<number, { name: string, subjects: Set<string> }> = {};
+                            timetable.entries.forEach((e: any) => {
+                                if (e.faculty) {
+                                    if (!facultyMap[e.faculty.id]) {
+                                        facultyMap[e.faculty.id] = { name: e.faculty.name, subjects: new Set() };
+                                    }
+                                    const subLabel = e.subject?.is_elective 
+                                        ? `${e.subject.code} (${e.subject.name} - ${e.subject.elective_group_id})` 
+                                        : `${e.subject.code} (${e.subject.name})`;
+                                    facultyMap[e.faculty.id].subjects.add(subLabel);
+                                }
+                            });
+
+                            return Object.values(facultyMap).map((f: any, idx) => (
+                                <div key={idx} style={{ background: '#f8fafc', padding: '0.75rem', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                                    <div style={{ fontWeight: 700, color: 'var(--primary-700)', marginBottom: '4px', fontSize: '0.9rem' }}>{f.name}</div>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                        {Array.from(f.subjects).map((s: any, sIdx) => (
+                                            <div key={sIdx} style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>• {s}</div>
+                                        ))}
+                                    </div>
+                                </div>
+                            ));
+                        })()}
+                    </div>
                 </div>
             </motion.div>
         );

@@ -95,6 +95,9 @@ class SubjectBase(BaseModel):
     weekly_hours: int = 3
     continuous_hours: int = 1
     manual_timeslot_ids: List[int] = []
+    is_elective: bool = False
+    elective_group_id: Optional[str] = None
+    allowed_department_ids: List[int] = []
 
 class SubjectCreate(SubjectBase):
     pass

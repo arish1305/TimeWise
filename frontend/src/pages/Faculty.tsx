@@ -8,6 +8,8 @@ interface Subject {
     name: string;
     code: string;
     department_id: number;
+    is_elective?: boolean;
+    allowed_department_ids?: number[];
 }
 
 interface AcademicYear {
@@ -21,6 +23,12 @@ interface Section {
     id: number;
     name: string;
     academic_year_id: number;
+}
+
+interface Department {
+    id: number;
+    name: string;
+    code: string;
 }
 
 interface Faculty {
@@ -49,6 +57,7 @@ const FacultyManager = () => {
     const [availableSubjects, setAvailableSubjects] = useState<Subject[]>([]);
     const [availableYears, setAvailableYears] = useState<AcademicYear[]>([]);
     const [availableSections, setAvailableSections] = useState<Section[]>([]);
+    const [availableDepartments, setAvailableDepartments] = useState<Department[]>([]);
     const [subjectAssignments, setSubjectAssignments] = useState<SubjectAssignment[]>([]);
     const [selectedYear, setSelectedYear] = useState<number | null>(null);
 
@@ -65,6 +74,7 @@ const FacultyManager = () => {
         fetchSubjects();
         fetchYears();
         fetchSections();
+        fetchDepartments();
     }, []);
 
     const fetchSubjects = async () => {
@@ -86,6 +96,13 @@ const FacultyManager = () => {
             const res = await api.get('/admin/sections');
             setAvailableSections(res.data);
         } catch (err) { console.error("Failed to fetch sections", err); }
+    };
+
+    const fetchDepartments = async () => {
+        try {
+            const res = await api.get('/admin/departments');
+            setAvailableDepartments(res.data);
+        } catch (err) { console.error("Failed to fetch departments", err); }
     };
 
     const fetchFaculty = async () => {
@@ -298,24 +315,28 @@ const FacultyManager = () => {
                                         >
                                             All Years
                                         </button>
-                                        {availableYears.map(year => (
-                                            <button
-                                                key={year.id}
-                                                onClick={() => setSelectedYear(year.id)}
-                                                style={{
-                                                    padding: '0.5rem 1rem',
-                                                    borderRadius: '6px',
-                                                    border: `2px solid ${selectedYear === year.id ? 'var(--primary-color)' : 'var(--border-color)'}`,
-                                                    background: selectedYear === year.id ? 'var(--primary-color)' : 'white',
-                                                    color: selectedYear === year.id ? 'white' : 'var(--text-primary)',
-                                                    cursor: 'pointer',
-                                                    fontSize: '0.875rem',
-                                                    fontWeight: 500
-                                                }}
-                                            >
-                                                {year.name}
-                                            </button>
-                                        ))}
+                                        {availableYears.map(year => {
+                                            const dept = availableDepartments.find(d => d.id === year.department_id);
+                                            const label = dept ? `${dept.code} - ${year.name}` : year.name;
+                                            return (
+                                                <button
+                                                    key={year.id}
+                                                    onClick={() => setSelectedYear(year.id)}
+                                                    style={{
+                                                        padding: '0.5rem 1rem',
+                                                        borderRadius: '6px',
+                                                        border: `2px solid ${selectedYear === year.id ? 'var(--primary-color)' : 'var(--border-color)'}`,
+                                                        background: selectedYear === year.id ? 'var(--primary-color)' : 'white',
+                                                        color: selectedYear === year.id ? 'white' : 'var(--text-primary)',
+                                                        cursor: 'pointer',
+                                                        fontSize: '0.875rem',
+                                                        fontWeight: 500
+                                                    }}
+                                                >
+                                                    {label}
+                                                </button>
+                                            );
+                                        })}
                                     </div>
                                 </div>
 
@@ -337,21 +358,34 @@ const FacultyManager = () => {
                                                 >
                                                     <div>
                                                         <div style={{ fontWeight: 600, fontSize: '1rem' }}>{sub.name}</div>
-                                                        <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{sub.code}</div>
+                                                        <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                                                            {sub.code} • {availableDepartments.find(d => d.id === sub.department_id)?.code || 'No Dept'}
+                                                        </div>
                                                     </div>
                                                     {isSelected && <Check size={20} color="var(--primary-color)" />}
                                                 </div>
 
-                                                {isSelected && (
+                                                {isSelected ? (
                                                     <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid var(--border-color)' }}>
                                                         <div style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.5rem', color: 'var(--text-secondary)' }}>
                                                             Assign to Sections {selectedYear ? `(${availableYears.find(y => y.id === selectedYear)?.name})` : ''}:
                                                         </div>
                                                         {filteredSections.length > 0 ? (
                                                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
-                                                                {filteredSections.map(sec => {
+                                                                {filteredSections.filter(sec => {
+                                                                    const yearInfo = availableYears.find(y => y.id === sec.academic_year_id);
+                                                                    if (!yearInfo) return false;
+                                                                    
+                                                                    const isPrimaryDept = yearInfo.department_id === sub.department_id;
+                                                                    const isAllowedDept = sub.allowed_department_ids?.includes(yearInfo.department_id) || false;
+                                                                    
+                                                                    return isPrimaryDept || isAllowedDept;
+                                                                }).map(sec => {
                                                                     const sectionSelected = assignment.section_ids.includes(sec.id);
                                                                     const yearInfo = availableYears.find(y => y.id === sec.academic_year_id);
+                                                                    const deptInfo = yearInfo ? availableDepartments.find(d => d.id === yearInfo.department_id) : null;
+                                                                    const sectionLabel = deptInfo ? `${deptInfo.code} - ${yearInfo?.name} - Section ${sec.name}` : `${yearInfo?.name} - Section ${sec.name}`;
+
                                                                     return (
                                                                         <div
                                                                             key={sec.id}
@@ -368,7 +402,7 @@ const FacultyManager = () => {
                                                                                 transition: 'all 0.2s'
                                                                             }}
                                                                         >
-                                                                            {yearInfo?.name} - Section {sec.name}
+                                                                            {sectionLabel}
                                                                         </div>
                                                                     );
                                                                 })}
@@ -383,6 +417,10 @@ const FacultyManager = () => {
                                                                 No sections selected - available for all sections
                                                             </div>
                                                         )}
+                                                    </div>
+                                                ) : (
+                                                    <div style={{ marginTop: '0.5rem', fontSize: '0.8rem', color: 'var(--text-secondary)', fontStyle: 'italic' }}>
+                                                        Click anywhere on this card to select this subject and assign specific sections.
                                                     </div>
                                                 )}
                                             </div>

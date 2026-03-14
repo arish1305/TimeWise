@@ -7,7 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 interface Section { id: number; name: string; student_count: number; academic_year_id: number; }
 interface AcademicYear { id: number; name: string; level: number; department_id: number; sections?: Section[]; }
 interface TimeSlot { id: number; day: string; start_time: string; end_time: string; label?: string; }
-interface Subject { id: number; name: string; code: string; semester: number; weekly_hours: number; department_id: number; manual_timeslot_ids?: number[]; }
+interface Subject { id: number; name: string; code: string; semester: number; weekly_hours: number; department_id: number; manual_timeslot_ids?: number[]; is_elective: boolean; elective_group_id?: string; allowed_department_ids?: number[]; }
 interface Department { id: number; name: string; code: string; years?: AcademicYear[]; subjects?: Subject[]; }
 
 const Departments = () => {
@@ -33,7 +33,7 @@ const Departments = () => {
 
     const [showSubjectForm, setShowSubjectForm] = useState<number | null>(null); // deptId
     const [editingSubjectId, setEditingSubjectId] = useState<number | null>(null);
-    const [newSubject, setNewSubject] = useState({ name: '', code: '', semester: 1, weekly_hours: 3, manual_timeslot_ids: [] as number[] });
+    const [newSubject, setNewSubject] = useState({ name: '', code: '', semester: 1, weekly_hours: 3, manual_timeslot_ids: [] as number[], is_elective: false, elective_group_id: '', allowed_department_ids: [] as number[] });
 
     useEffect(() => {
         fetchDepartments();
@@ -212,7 +212,8 @@ const Departments = () => {
             const payload = {
                 ...newSubject,
                 department_id: deptId,
-                manual_timeslot_ids: newSubject.manual_timeslot_ids
+                manual_timeslot_ids: newSubject.manual_timeslot_ids,
+                allowed_department_ids: newSubject.allowed_department_ids
             };
             if (editingSubjectId) {
                 await api.put(`/admin/subjects/${editingSubjectId}`, payload);
@@ -234,7 +235,10 @@ const Departments = () => {
             code: sub.code,
             semester: sub.semester,
             weekly_hours: sub.weekly_hours,
-            manual_timeslot_ids: sub.manual_timeslot_ids || []
+            manual_timeslot_ids: sub.manual_timeslot_ids || [],
+            is_elective: sub.is_elective || false,
+            elective_group_id: sub.elective_group_id || '',
+            allowed_department_ids: sub.allowed_department_ids || []
         });
         setEditingSubjectId(sub.id);
         setShowSubjectForm(deptId);
@@ -329,7 +333,7 @@ const Departments = () => {
                                                 </h4>
                                                 <button className="btn" style={{ fontSize: '0.8rem', padding: '0.2rem 0.6rem' }} onClick={() => {
                                                     setEditingSubjectId(null);
-                                                    setNewSubject({ name: '', code: '', semester: 1, weekly_hours: 3, manual_timeslot_ids: [] });
+                                                    setNewSubject({ name: '', code: '', semester: 1, weekly_hours: 3, manual_timeslot_ids: [], is_elective: false, elective_group_id: '', allowed_department_ids: [] });
                                                     setShowSubjectForm(dept.id);
                                                 }}>
                                                     <Plus size={16} /> Add Subject
@@ -342,6 +346,16 @@ const Departments = () => {
                                                     <input className="input-field" placeholder="Code (CS101)" value={newSubject.code} onChange={e => setNewSubject({ ...newSubject, code: e.target.value })} style={{ width: 100 }} />
                                                     <input type="number" className="input-field" placeholder="Sem" value={isNaN(newSubject.semester) ? '' : newSubject.semester} onChange={e => setNewSubject({ ...newSubject, semester: parseInt(e.target.value) })} style={{ width: 60 }} />
                                                     <input type="number" className="input-field" placeholder="Hrs/Wk" value={isNaN(newSubject.weekly_hours) ? '' : newSubject.weekly_hours} onChange={e => setNewSubject({ ...newSubject, weekly_hours: parseInt(e.target.value) })} style={{ width: 80 }} />
+                                                    
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginLeft: '0.5rem' }}>
+                                                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.9rem' }}>
+                                                            <input type="checkbox" checked={newSubject.is_elective} onChange={e => setNewSubject({ ...newSubject, is_elective: e.target.checked })} />
+                                                            Elective
+                                                        </label>
+                                                        {newSubject.is_elective && (
+                                                            <input className="input-field" placeholder="Group ID (PE1)" value={newSubject.elective_group_id} onChange={e => setNewSubject({ ...newSubject, elective_group_id: e.target.value })} style={{ width: 100 }} />
+                                                        )}
+                                                    </div>
                                                     <div style={{ display: 'flex', flexDirection: 'column', width: '100%', marginTop: '0.5rem' }}>
                                                         <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '4px' }}>Manual Timeslots (Optional)</label>
                                                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', maxHeight: '120px', overflowY: 'auto', border: '1px solid #e2e8f0', padding: '0.5rem', borderRadius: '4px' }}>
@@ -370,6 +384,37 @@ const Departments = () => {
                                                             })}
                                                         </div>
                                                     </div>
+                                                    
+                                                    {/* Other Departments Select */}
+                                                    <div style={{ display: 'flex', flexDirection: 'column', width: '100%', marginTop: '0.5rem' }}>
+                                                        <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '4px' }}>Available Config: Offered to Other Departments</label>
+                                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', maxHeight: '120px', overflowY: 'auto', border: '1px solid #e2e8f0', padding: '0.5rem', borderRadius: '4px' }}>
+                                                            {departments.filter(d => d.id !== dept.id).map(otherDept => {
+                                                                const isSelected = newSubject.allowed_department_ids.includes(otherDept.id);
+                                                                return (
+                                                                    <div
+                                                                        key={otherDept.id}
+                                                                        onClick={() => {
+                                                                            if (isSelected) {
+                                                                                setNewSubject({ ...newSubject, allowed_department_ids: newSubject.allowed_department_ids.filter(id => id !== otherDept.id) });
+                                                                            } else {
+                                                                                setNewSubject({ ...newSubject, allowed_department_ids: [...newSubject.allowed_department_ids, otherDept.id] });
+                                                                            }
+                                                                        }}
+                                                                        style={{
+                                                                            fontSize: '0.75rem', padding: '3px 8px', borderRadius: '12px', cursor: 'pointer',
+                                                                            background: isSelected ? 'var(--primary-500)' : '#f1f5f9',
+                                                                            color: isSelected ? 'white' : 'inherit',
+                                                                            border: isSelected ? '1px solid var(--primary-600)' : '1px solid #cbd5e1'
+                                                                        }}
+                                                                    >
+                                                                        {otherDept.code} - {otherDept.name}
+                                                                    </div>
+                                                                )
+                                                            })}
+                                                        </div>
+                                                    </div>
+
                                                     <div style={{ width: '100%', marginTop: '0.5rem', display: 'flex', gap: '0.5rem' }}>
                                                         <button className="btn btn-primary" onClick={() => saveSubject(dept.id)}>Save</button>
                                                         <button className="btn" onClick={() => { setShowSubjectForm(null); setEditingSubjectId(null); }}>Cancel</button>
@@ -388,6 +433,20 @@ const Departments = () => {
                                                             </div>
                                                             <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>
                                                                 Semester {sub.semester} • {sub.weekly_hours} hrs/week
+                                                                {sub.is_elective && (
+                                                                    <div style={{ display: 'inline-flex', marginLeft: '0.5rem' }}>
+                                                                        <span style={{ fontSize: '0.7rem', background: 'var(--primary-100)', color: 'var(--primary-700)', padding: '1px 6px', borderRadius: '10px', fontWeight: 600 }}>
+                                                                            Elective: {sub.elective_group_id}
+                                                                        </span>
+                                                                    </div>
+                                                                )}
+                                                                {sub.allowed_department_ids && sub.allowed_department_ids.length > 0 && (
+                                                                    <div style={{ display: 'inline-flex', marginLeft: '0.5rem' }}>
+                                                                        <span style={{ fontSize: '0.7rem', background: 'var(--warning-100)', color: 'var(--warning-700)', padding: '1px 6px', borderRadius: '10px', fontWeight: 600 }}>
+                                                                            Shared ({sub.allowed_department_ids.length})
+                                                                        </span>
+                                                                    </div>
+                                                                )}
                                                                 {sub.manual_timeslot_ids && sub.manual_timeslot_ids.length > 0 && (
                                                                     <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 4, color: 'var(--warning-color)', fontWeight: 600 }}>
                                                                         <span>📌 Manual Time: {sub.manual_timeslot_ids.length} Scheduled</span>

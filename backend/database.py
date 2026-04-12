@@ -29,8 +29,7 @@ def wait_for_db(retries=10, delay=2):
             time.sleep(delay)
     logger.error("Could not connect to database after several retries.")
 
-# Attempt connection before creating session/metadata
-wait_for_db()
+# The call to wait_for_db should be done within the application startup
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

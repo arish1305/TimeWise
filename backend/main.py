@@ -7,9 +7,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 logger = logging.getLogger(__name__)
 
 from routers import auth, admin, timetable
-from database import engine, Base
-
-Base.metadata.create_all(bind=engine)
+from database import engine, Base, wait_for_db
 
 app = FastAPI(title="TimeWise AI Backend", version="0.1.0")
 
@@ -17,7 +15,12 @@ app = FastAPI(title="TimeWise AI Backend", version="0.1.0")
 from seed import seed
 @app.on_event("startup")
 def on_startup():
-    seed()
+    try:
+        wait_for_db()
+        Base.metadata.create_all(bind=engine)
+        seed()
+    except Exception as e:
+        logger.error(f"Startup error: {e}")
 
 import os
 

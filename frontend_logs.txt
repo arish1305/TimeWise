@@ -1,0 +1,50 @@
+timewise_frontend  | 
+timewise_frontend  |   VITE v7.3.1  ready in 451 ms
+timewise_frontend  | 
+timewise_frontend  |   ➜  Local:   http://localhost:3000/
+timewise_frontend  |   ➜  Network: http://172.19.0.5:3000/
+timewise_frontend  | 
+timewise_frontend  | > frontend@0.0.0 dev
+timewise_frontend  | > vite --host
+timewise_frontend  | 
+timewise_frontend  | failed to load config from /app/vite.config.ts
+timewise_frontend  | error when starting dev server:
+timewise_frontend  | Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'vitest' imported from /app/node_modules/.vite-temp/vite.config.ts.timestamp-1775715841017-3095675fc9dda.mjs
+timewise_frontend  |     at Object.getPackageJSONURL (node:internal/modules/package_json_reader:314:9)
+timewise_frontend  |     at packageResolve (node:internal/modules/esm/resolve:768:81)
+timewise_frontend  |     at moduleResolve (node:internal/modules/esm/resolve:855:18)
+timewise_frontend  |     at defaultResolve (node:internal/modules/esm/resolve:985:11)
+timewise_frontend  |     at #cachedDefaultResolve (node:internal/modules/esm/loader:731:20)
+timewise_frontend  |     at ModuleLoader.resolve (node:internal/modules/esm/loader:708:38)
+timewise_frontend  |     at ModuleLoader.getModuleJobForImport (node:internal/modules/esm/loader:310:38)
+timewise_frontend  |     at ModuleJob._link (node:internal/modules/esm/module_job:182:49)
+timewise_frontend  | 
+timewise_frontend  | > frontend@0.0.0 dev
+timewise_frontend  | > vite --host
+timewise_frontend  | 
+timewise_frontend  | failed to load config from /app/vite.config.ts
+timewise_frontend  | error when starting dev server:
+timewise_frontend  | Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'vitest' imported from /app/node_modules/.vite-temp/vite.config.ts.timestamp-1775715878457-ac63a26e17e4d.mjs
+timewise_frontend  |     at Object.getPackageJSONURL (node:internal/modules/package_json_reader:314:9)
+timewise_frontend  |     at packageResolve (node:internal/modules/esm/resolve:768:81)
+timewise_frontend  |     at moduleResolve (node:internal/modules/esm/resolve:855:18)
+timewise_frontend  |     at defaultResolve (node:internal/modules/esm/resolve:985:11)
+timewise_frontend  |     at #cachedDefaultResolve (node:internal/modules/esm/loader:731:20)
+timewise_frontend  |     at ModuleLoader.resolve (node:internal/modules/esm/loader:708:38)
+timewise_frontend  |     at ModuleLoader.getModuleJobForImport (node:internal/modules/esm/loader:310:38)
+timewise_frontend  |     at ModuleJob._link (node:internal/modules/esm/module_job:182:49)
+timewise_frontend  | 
+timewise_frontend  | > frontend@0.0.0 dev
+timewise_frontend  | > vite --host
+timewise_frontend  | 
+timewise_frontend  | failed to load config from /app/vite.config.ts
+timewise_frontend  | error when starting dev server:
+timewise_frontend  | Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'vitest' imported from /app/node_modules/.vite-temp/vite.config.ts.timestamp-1775715898902-fb23d3694c2bd.mjs
+timewise_frontend  |     at Object.getPackageJSONURL (node:internal/modules/package_json_reader:314:9)
+timewise_frontend  |     at packageResolve (node:internal/modules/esm/resolve:768:81)
+timewise_frontend  |     at moduleResolve (node:internal/modules/esm/resolve:855:18)
+timewise_frontend  |     at defaultResolve (node:internal/modules/esm/resolve:985:11)
+timewise_frontend  |     at #cachedDefaultResolve (node:internal/modules/esm/loader:731:20)
+timewise_frontend  |     at ModuleLoader.resolve (node:internal/modules/esm/loader:708:38)
+timewise_frontend  |     at ModuleLoader.getModuleJobForImport (node:internal/modules/esm/loader:310:38)
+timewise_frontend  |     at ModuleJob._link (node:internal/modules/esm/module_job:182:49)

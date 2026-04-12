@@ -35,6 +35,7 @@ const Timetables = () => {
     const [timetable, setTimetable] = useState<any>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [validation, setValidation] = useState<any>(null);
 
     // Initial Load
     useEffect(() => {
@@ -109,11 +110,21 @@ const Timetables = () => {
                 semester: Number(semester)
             });
             setTimetable(res.data);
+            validateTimetable(res.data.id);
         } catch (err: any) {
             console.error(err);
             setError(err.response?.data?.detail || "Failed to generate timetable.");
         } finally {
             setLoading(false);
+        }
+    };
+
+    const validateTimetable = async (id: number) => {
+        try {
+            const res = await axiosInstance.post(`/timetables/${id}/validate`);
+            setValidation(res.data);
+        } catch (err) {
+            console.error("Validation failed", err);
         }
     };
 
@@ -162,6 +173,7 @@ const Timetables = () => {
             setTimetable(res.data);
             setBulkResults(null);
             setShowAllTimetables(false);
+            validateTimetable(res.data.id);
             window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
         } catch (err) {
             console.error("Failed to load timetable", err);
@@ -247,6 +259,19 @@ const Timetables = () => {
                     </div>
                 </div>
 
+                {/* Validation Summary Card */}
+                {validation && (validation.errors?.length > 0 || validation.warnings?.length > 0) && (
+                    <div className={`validation-card ${validation.status === 'FAIL' ? 'validation-fail' : 'validation-warn'}`}>
+                        <h4 className="validation-title">
+                            {validation.status === 'FAIL' ? '⚠️ Validation Failed (Conflicts Detected)' : 'ℹ️ Validation Warnings (Uneven Distribution)'}
+                        </h4>
+                        <ul className="validation-list">
+                            {validation.errors?.map((e: string, i: number) => <li key={`e-${i}`} className="validation-error">{e}</li>)}
+                            {validation.warnings?.map((w: string, i: number) => <li key={`w-${i}`} className="validation-warning">{w}</li>)}
+                        </ul>
+                    </div>
+                )}
+
                 <div className="timetable-container">
                     <table className="timetable-grid">
                         <thead>
@@ -278,9 +303,10 @@ const Timetables = () => {
 
                                         const slot = timeSlots.find((ts: any) => ts.day === day && ts.start_time === t.start);
                                         const entries = slot ? entryMap[slot.id] : null;
+                                        const isConflict = slot && validation?.error_slots?.includes(slot.id);
 
                                         return (
-                                            <td key={timeIdx} className={`timetable-cell ${entries ? 'cell-filled' : 'cell-empty'}`}>
+                                            <td key={timeIdx} className={`timetable-cell ${entries ? 'cell-filled' : 'cell-empty'} ${isConflict ? 'cell-conflict' : ''}`}>
                                                 {entries ? (
                                                     <div className="cell-content">
                                                         {entries.map((entry, idx) => (

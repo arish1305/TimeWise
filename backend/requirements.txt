@@ -10,4 +10,5 @@ python-multipart
 httpx
 bcrypt==3.2.2
 python-dotenv
-
+pytest
+pytest-asyncio

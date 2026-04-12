@@ -223,3 +223,10 @@ class TimeSlot(TimeSlotBase):
     class Config:
         from_attributes = True
 
+# --- Validation Schemas ---
+class ValidationResponse(BaseModel):
+    status: str
+    errors: List[str]
+    warnings: List[str]
+    error_slots: List[int] = []
+    warning_slots: List[int] = []

@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
 from database import SessionLocal, engine, Base
-from models import User, UserRole, Department, Room, Faculty, Subject, AcademicYear, Section, FacultyType, RoomType, FacultySubjectAssignment
+from models import User, UserRole, Department, Faculty, Subject, AcademicYear, Section, FacultyType, FacultySubjectAssignment
 from auth import get_password_hash
 
 def seed():
@@ -9,15 +9,21 @@ def seed():
     db = SessionLocal()
 
     # Admin User
-    if not db.query(User).filter(User.username == "admin").first():
+    admin = db.query(User).filter(User.username == "admin").first()
+    if not admin:
         admin = User(
             username="admin",
             email="admin@timewise.com",
-            hashed_password=get_password_hash("admin123"),
+            hashed_password=get_password_hash("admin"),
             role=UserRole.ADMIN,
             full_name="System Admin"
         )
         db.add(admin)
+    else:
+        admin.email = "admin@timewise.com"
+        admin.role = UserRole.ADMIN
+        admin.full_name = "System Admin"
+        admin.hashed_password = get_password_hash("admin")
 
     # Department
     # Use Filter by Code as it is Unique
@@ -108,13 +114,7 @@ def seed():
         db.add_all(new_slots)
         db.commit()
     
-    # Rooms
-    if not db.query(Room).filter(Room.room_number == "101").first():
-        r1 = Room(room_number="101", capacity=60, room_type=RoomType.CLASSROOM)
-        r2 = Room(room_number="LAB-1", capacity=30, room_type=RoomType.LAB)
-        db.add_all([r1, r2])
-        
-    db.commit()
+
             
     db.commit()
     db.close()

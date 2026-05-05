@@ -1,6 +1,7 @@
 from pydantic import BaseModel
 from typing import Optional, List
-from models import UserRole, RoomType, FacultyType, SubjectType, EntryCreator
+from datetime import datetime, time
+from models import UserRole, FacultyType, SubjectType, EntryCreator
 
 class UserBase(BaseModel):
     username: str
@@ -19,9 +20,15 @@ class UserResponse(UserBase):
 class Token(BaseModel):
     access_token: str
     token_type: str
+    role: UserRole
+    username: str
+    full_name: Optional[str] = None
+    faculty_id: Optional[int] = None
 
 class TokenData(BaseModel):
     username: Optional[str] = None
+    role: Optional[UserRole] = None
+    faculty_id: Optional[int] = None
 
 # --- Department Schemas ---
 class DepartmentBase(BaseModel):
@@ -70,20 +77,7 @@ class SectionWithYear(SectionBase):
     class Config:
         from_attributes = True
 
-# --- Room Schemas ---
-class RoomBase(BaseModel):
-    room_number: str
-    capacity: int
-    room_type: RoomType = RoomType.CLASSROOM
-    departments: Optional[List[int]] = None # List of Department IDs
 
-class RoomCreate(RoomBase):
-    pass
-
-class Room(RoomBase):
-    id: int
-    class Config:
-        from_attributes = True
 
 # --- Subject Schemas ---
 class SubjectBase(BaseModel):
@@ -142,6 +136,21 @@ class Faculty(FacultyBase):
     class Config:
         from_attributes = True
 
+class FacultyBulkRow(BaseModel):
+    name: str
+    faculty_id_code: Optional[str] = None
+    faculty_type: FacultyType = FacultyType.ASSISTANT_PROFESSOR
+    min_hours_per_week: int = 5
+    max_hours_per_week: int = 18
+    department_codes: List[str] = []
+
+class FacultyBulkCreate(BaseModel):
+    rows: List[FacultyBulkRow]
+
+class FacultyBulkResult(BaseModel):
+    created_count: int
+    errors: List[str]
+
 # --- Timetable Schemas ---
 class GenerateTimetableRequest(BaseModel):
     semester: int
@@ -159,7 +168,6 @@ class FacultyBasic(BaseModel):
 class TimetableEntryBase(BaseModel):
     subject_id: int
     faculty_id: Optional[int] = None
-    room_id: Optional[int] = None
     timeslot_id: int
     is_locked: bool = False
     created_by: str = EntryCreator.AI
@@ -168,7 +176,6 @@ class TimetableEntry(TimetableEntryBase):
     id: int
     subject: Optional[Subject] = None
     faculty: Optional[FacultyBasic] = None
-    room: Optional[Room] = None
     timeslot: Optional['TimeSlot'] = None 
     class Config:
         from_attributes = True
@@ -177,13 +184,40 @@ class TimetableBase(BaseModel):
     section_id: Optional[int] = None
     semester: int
     status: str = "DRAFT"
+    version: int = 1
 
 class Timetable(TimetableBase):
     id: int
+    created_at: Optional[datetime] = None
     section: Optional[SectionWithYear] = None
     entries: List[TimetableEntry] = []
     class Config:
         from_attributes = True
+
+class FacultyTimetableEntry(BaseModel):
+    timetable_id: int
+    timetable_status: str
+    semester: int
+    section_id: int
+    section_name: str
+    academic_year_name: Optional[str] = None
+    department_name: Optional[str] = None
+    department_code: Optional[str] = None
+    subject_id: int
+    subject_code: Optional[str] = None
+    subject_name: Optional[str] = None
+    timeslot_id: int
+    day: Optional[str] = None
+    start_time: Optional[time] = None
+    end_time: Optional[time] = None
+    is_locked: bool = False
+    created_by: str
+
+class FacultyTimetableResponse(BaseModel):
+    faculty_id: int
+    faculty_name: str
+    faculty_id_code: Optional[str] = None
+    entries: List[FacultyTimetableEntry]
 
 # --- Manual Entry Schemas ---
 class ManualEntryRequest(BaseModel):
@@ -191,22 +225,17 @@ class ManualEntryRequest(BaseModel):
     semester: int
     subject_id: int
     faculty_id: Optional[int] = None
-    room_id: Optional[int] = None
     timeslot_id: int
     is_locked: bool = True
 
 class ManualEntryUpdate(BaseModel):
     subject_id: Optional[int] = None
     faculty_id: Optional[int] = None
-    room_id: Optional[int] = None
     is_locked: Optional[bool] = None
 
 class RegenerateRequest(BaseModel):
     section_id: int
     semester: int
-
-# --- TimeSlot Schemas ---
-from datetime import time
 
 class TimeSlotBase(BaseModel):
     day: str

@@ -14,26 +14,36 @@ class OptimizationRequest(BaseModel):
     semester: int
     subjects: List[Dict[str, Any]]
     faculty: List[Dict[str, Any]]
-    rooms: List[Dict[str, Any]]
     timeslots: List[Dict[str, Any]]
     constraints: Optional[Dict[str, Any]] = None
     locked_slots: Optional[List[Dict[str, Any]]] = None
 
 @app.post("/optimize")
 def optimize_schedule(request: OptimizationRequest):
-    try:
-        solver = CSPSolver(
-            subjects=request.subjects,
-            faculty=request.faculty,
-            rooms=request.rooms,
-            timeslots=request.timeslots,
-            constraints=request.constraints,
-            locked_slots=request.locked_slots
-        )
-        schedule = solver.solve()
-        
-        return {"status": "success", "schedule": schedule, "semester": request.semester}
-    except Exception as e:
-        logger.error(f"AI Engine Error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
+    max_attempts = 100
+    last_error = None
+    
+    for attempt in range(max_attempts):
+        try:
+            solver = CSPSolver(
+                subjects=request.subjects,
+                faculty=request.faculty,
+                timeslots=request.timeslots,
+                constraints=request.constraints,
+                locked_slots=request.locked_slots
+            )
+            schedule = solver.solve()
+            
+            if attempt > 0:
+                logger.info(f"Successfully generated schedule on attempt {attempt + 1}")
+                
+            return {"status": "success", "schedule": schedule, "semester": request.semester}
+        except ValueError as e:
+            last_error = e
+            continue
+        except Exception as e:
+            logger.error(f"AI Engine Error: {e}")
+            raise HTTPException(status_code=500, detail="Internal AI Engine Error")
+            
+    logger.error(f"AI Engine Validation Error after {max_attempts} attempts: {last_error}")
+    raise HTTPException(status_code=400, detail=str(last_error))

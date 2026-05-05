@@ -1,7 +1,8 @@
-from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, Enum, Time, CheckConstraint, Table, JSON
+from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, Enum, Time, CheckConstraint, Table, JSON, DateTime
 from sqlalchemy.orm import relationship
 from database import Base
 import enum
+import datetime
 
 # Enums
 class UserRole(str, enum.Enum):
@@ -9,10 +10,7 @@ class UserRole(str, enum.Enum):
     FACULTY = "FACULTY"
     TIMETABLE_CELL = "TIMETABLE_CELL"
 
-class RoomType(str, enum.Enum):
-    CLASSROOM = "CLASSROOM"
-    LAB = "LAB"
-    SEMINAR_HALL = "SEMINAR_HALL"
+
 
 class FacultyType(str, enum.Enum):
     PROFESSOR = "PROFESSOR"
@@ -128,13 +126,7 @@ class FacultySubjectAssignment(Base):
     faculty = relationship("Faculty", back_populates="qualified_subjects")
     subject = relationship("Subject", back_populates="eligible_faculty")
 
-class Room(Base):
-    __tablename__ = "rooms"
-    id = Column(Integer, primary_key=True, index=True)
-    room_number = Column(String, unique=True, index=True)
-    capacity = Column(Integer)
-    room_type = Column(String, default=RoomType.CLASSROOM)
-    departments = Column(JSON, nullable=True) # List of department IDs allowed, or null for all
+
 
 class TimeSlot(Base):
     __tablename__ = "timeslots"
@@ -157,6 +149,7 @@ class Timetable(Base):
     version = Column(Integer, default=1)
     status = Column(String, default="DRAFT") # DRAFT, APPROVED
     is_active = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
     
     section = relationship("Section", back_populates="timetables")
     entries = relationship("TimetableEntry", back_populates="timetable", cascade="all, delete-orphan")
@@ -167,7 +160,6 @@ class TimetableEntry(Base):
     timetable_id = Column(Integer, ForeignKey("timetables.id"))
     subject_id = Column(Integer, ForeignKey("subjects.id"))
     faculty_id = Column(Integer, ForeignKey("faculty.id"), nullable=True)
-    room_id = Column(Integer, ForeignKey("rooms.id"), nullable=True)
     timeslot_id = Column(Integer, ForeignKey("timeslots.id"))
     is_locked = Column(Boolean, default=False)
     created_by = Column(String, default=EntryCreator.AI)
@@ -175,5 +167,4 @@ class TimetableEntry(Base):
     timetable = relationship("Timetable", back_populates="entries")
     subject = relationship("Subject")
     faculty = relationship("Faculty")
-    room = relationship("Room")
     timeslot = relationship("TimeSlot")

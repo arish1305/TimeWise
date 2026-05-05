@@ -2,10 +2,9 @@ from typing import List, Dict, Any, Optional
 import random
 
 class CSPSolver:
-    def __init__(self, subjects: List[Dict], faculty: List[Dict], rooms: List[Dict], timeslots: List[Dict], constraints: Optional[Dict] = None, locked_slots: Optional[List[Dict]] = None):
+    def __init__(self, subjects: List[Dict], faculty: List[Dict], timeslots: List[Dict], constraints: Optional[Dict] = None, locked_slots: Optional[List[Dict]] = None):
         self.subjects = subjects
         self.faculty = faculty
-        self.rooms = rooms
         self.timeslots = timeslots
         self.assignments = []
         self.constraints = constraints or {}
@@ -16,7 +15,6 @@ class CSPSolver:
         
         # Helper maps
         faculty_availability = {f["id"]: set() for f in self.faculty}
-        room_availability = {r["id"]: set() for r in self.rooms}
         faculty_hours_count = {f["id"]: 0 for f in self.faculty}
         occupied_slots = set()
         
@@ -24,13 +22,10 @@ class CSPSolver:
         for locked in self.locked_slots:
             ts_id = locked.get("timeslot_id")
             f_id = locked.get("faculty_id")
-            r_id = locked.get("room_id")
             occupied_slots.add(ts_id)
             if f_id and f_id in faculty_availability:
                 faculty_availability[f_id].add(ts_id)
                 faculty_hours_count[f_id] = faculty_hours_count.get(f_id, 0) + 1
-            if r_id and r_id in room_availability:
-                room_availability[r_id].add(ts_id)
         
         # Track locked subject hours
         locked_subject_hours = {}
@@ -46,12 +41,7 @@ class CSPSolver:
                 for slot_id in slots:
                     faculty_availability[int(fid)].add(slot_id)
 
-        room_commitments = self.constraints.get("room_commitments", {})
-        for rid, slots in room_commitments.items():
-            if int(rid) in room_availability:
-                for slot_id in slots:
-                    room_availability[int(rid)].add(slot_id)
-        
+
         # Load Preferences (Max Hours)
         faculty_prefs = self.constraints.get("faculty_preferences", {})
 
@@ -59,8 +49,8 @@ class CSPSolver:
         core_subjects = []
         elective_groups = {}
         for s in self.subjects:
-            gid = s.get("elective_group_id")
-            if s.get("is_elective") and gid:
+            if s.get("is_elective") and s.get("elective_group_id") is not None:
+                gid = s["elective_group_id"]
                 if gid not in elective_groups:
                     elective_groups[gid] = []
                 elective_groups[gid].append(s)
@@ -97,66 +87,67 @@ class CSPSolver:
                 group_assigned = False
                 available_days_sorted = sorted(days, key=lambda d: assigned_days_count[d])
                 
-                for day in available_days_sorted:
-                    if assigned_days_count[day] >= max_per_day:
-                        continue
-                        
-                    for slot in slots_by_day[day]:
-                        if slot["id"] in occupied_slots:
-                            continue
-                        
-                        # Check if all faculty in group are available
-                        all_faculty_available = True
-                        for s in group_subjects:
-                            fid = s.get("faculty_id")
-                            if fid:
-                                if slot["id"] in faculty_availability.get(fid, set()):
-                                    all_faculty_available = False
-                                    break
-                                
-                                max_h = 18
-                                if str(fid) in faculty_prefs:
-                                    max_h = faculty_prefs[str(fid)].get("max_hours", 18)
-                                elif int(fid) in faculty_prefs:
-                                    max_h = faculty_prefs[int(fid)].get("max_hours", 18)
-                                    
-                                if faculty_hours_count.get(fid, 0) >= max_h:
-                                    all_faculty_available = False
-                                    break
-                        
-                        if not all_faculty_available:
-                            continue
-                            
-                        # Find distinct rooms for each elective subject in the group
-                        available_rooms = [r for r in self.rooms if slot["id"] not in room_availability.get(r["id"], set())]
-                        if len(available_rooms) < len(group_subjects):
-                            continue
-                        
-                        # Assign the whole group to this slot
-                        for i, s in enumerate(group_subjects):
-                            room = available_rooms[i]
-                            fid = s.get("faculty_id")
-                            
-                            schedule.append({
-                                "subject_id": s["id"],
-                                "faculty_id": fid,
-                                "room_id": room["id"],
-                                "timeslot_id": slot["id"]
-                            })
-                            
-                            if fid:
-                                faculty_availability.setdefault(fid, set()).add(slot["id"])
-                                faculty_hours_count[fid] = faculty_hours_count.get(fid, 0) + 1
-                            
-                            room_availability[room["id"]].add(slot["id"])
-                        
-                        occupied_slots.add(slot["id"])
-                        assigned_days_count[day] += 1
-                        group_assigned = True
-                        break
+                for pass_num in range(2):
+                    current_max = max_per_day if pass_num == 0 else 5 # relax constraint on second pass
                     
+                    for day in available_days_sorted:
+                        if assigned_days_count[day] >= current_max:
+                            continue
+                            
+                        for slot in slots_by_day[day]:
+                            if slot["id"] in occupied_slots:
+                                continue
+                            
+                            # Check if all faculty in group are available
+                            all_faculty_available = True
+                            for s in group_subjects:
+                                fid = s.get("faculty_id")
+                                if fid:
+                                    if slot["id"] in faculty_availability.get(fid, set()):
+                                        all_faculty_available = False
+                                        break
+                                    
+                                    max_h = 18
+                                    if str(fid) in faculty_prefs:
+                                        max_h = faculty_prefs[str(fid)].get("max_hours", 18)
+                                    elif int(fid) in faculty_prefs:
+                                        max_h = faculty_prefs[int(fid)].get("max_hours", 18)
+                                        
+                                    if faculty_hours_count.get(fid, 0) >= max_h:
+                                        all_faculty_available = False
+                                        break
+                            
+                            if not all_faculty_available:
+                                continue
+                                
+                            # Assign the whole group to this slot
+                            for i, s in enumerate(group_subjects):
+                                fid = s.get("faculty_id")
+                                
+                                schedule.append({
+                                    "subject_id": s["id"],
+                                    "faculty_id": fid,
+                                    "timeslot_id": slot["id"]
+                                })
+                                
+                                if fid:
+                                    faculty_availability.setdefault(fid, set()).add(slot["id"])
+                                    faculty_hours_count[fid] = faculty_hours_count.get(fid, 0) + 1
+                            
+                            occupied_slots.add(slot["id"])
+                            assigned_days_count[day] += 1
+                            group_assigned = True
+                            break
+                        
+                        if group_assigned:
+                            break
                     if group_assigned:
                         break
+                
+                if not group_assigned:
+                    sub_names = ", ".join([s.get("name", "Unknown") for s in group_subjects])
+                    fac_names = ", ".join([str(s.get("faculty_id")) for s in group_subjects if s.get("faculty_id")])
+                    raise ValueError(f"Clash Error: Could not schedule elective group '{gid}' ({sub_names}). Faculty ({fac_names}) are completely booked or clashing at all available slots.")
 
         # 2. Schedule Core Subjects
         for subject in core_subjects:
@@ -185,15 +176,17 @@ class CSPSolver:
                 session_assigned = False
                 available_days_sorted = sorted(days, key=lambda d: assigned_days_count[d])
                 
-                for day in available_days_sorted:
-                    if assigned_days_count[day] >= max_per_day:
-                        continue
-                        
-                    for slot in slots_by_day[day]:
-                        if slot["id"] in occupied_slots:
+                for pass_num in range(2):
+                    current_max = max_per_day if pass_num == 0 else 5 # relax constraint on second pass
+                    
+                    for day in available_days_sorted:
+                        if assigned_days_count[day] >= current_max:
                             continue
-                        
-                        for room in self.rooms:
+                            
+                        for slot in slots_by_day[day]:
+                            if slot["id"] in occupied_slots:
+                                continue
+                            
                             fid = subject.get("faculty_id")
                             
                             if fid:
@@ -208,14 +201,10 @@ class CSPSolver:
                                     
                                 if faculty_hours_count.get(fid, 0) >= max_h:
                                     continue
-                                
-                            if slot["id"] in room_availability.get(room["id"], set()):
-                                 continue
                                  
                             schedule.append({
                                 "subject_id": subject["id"],
                                 "faculty_id": fid,
-                                "room_id": room["id"],
                                 "timeslot_id": slot["id"]
                             })
                             
@@ -223,15 +212,36 @@ class CSPSolver:
                                  faculty_availability.setdefault(fid, set()).add(slot["id"])
                                  faculty_hours_count[fid] = faculty_hours_count.get(fid, 0) + 1
                             
-                            room_availability[room["id"]].add(slot["id"])
                             occupied_slots.add(slot["id"])
                             
                             assigned_days_count[day] += 1
                             session_assigned = True
-                            break
+                            
+                            if session_assigned:
+                                break
                         if session_assigned:
                             break
                     if session_assigned:
                         break
+                
+                if not session_assigned:
+                    sub_name = subject.get("name", "Unknown")
+                    fac_id = subject.get("faculty_id")
+                    
+                    # Try to find faculty name if possible
+                    fac_name = str(fac_id)
+                    for f in self.faculty:
+                        if f["id"] == fac_id:
+                            fac_name = f["name"]
+                            break
+                            
+                    sub_names = {s["id"]: s.get("name", "Unknown") for s in self.subjects}
+                    counts = {}
+                    for entry in schedule:
+                        n = sub_names.get(entry["subject_id"], "?")
+                        counts[n] = counts.get(n, 0) + 1
+                    print("Scheduled counts:", counts)
+                    
+                    raise ValueError(f"Clash Error: Could not schedule core subject '{sub_name}'. Faculty '{fac_name}' is overbooked or clashing at all available slots.")
                 
         return schedule

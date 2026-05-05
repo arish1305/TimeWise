@@ -41,6 +41,32 @@ class CSPSolver:
                 for slot_id in slots:
                     faculty_availability[int(fid)].add(slot_id)
 
+        prior_commitment_entries = self.constraints.get("prior_commitment_entries", {})
+        faculty_commitment_subjects = {}
+        for fid, entries in prior_commitment_entries.items():
+            try:
+                faculty_id = int(fid)
+            except Exception:
+                continue
+            for entry in entries or []:
+                ts_id = entry.get("timeslot_id")
+                sid = entry.get("subject_id")
+                if ts_id is None:
+                    continue
+                faculty_commitment_subjects.setdefault(faculty_id, {}).setdefault(ts_id, []).append(sid)
+
+        def can_share_faculty_slot(subject: Dict[str, Any], faculty_id: int, slot_id: int) -> bool:
+            if not subject.get("is_cbcs_shared"):
+                return False
+            subject_id = subject.get("id")
+            committed_subject_ids = faculty_commitment_subjects.get(faculty_id, {}).get(slot_id, [])
+            if not committed_subject_ids:
+                return False
+            for committed_subject_id in committed_subject_ids:
+                if committed_subject_id != subject_id:
+                    return False
+            return True
+
 
         # Load Preferences (Max Hours)
         faculty_prefs = self.constraints.get("faculty_preferences", {})
@@ -87,8 +113,9 @@ class CSPSolver:
                 group_assigned = False
                 available_days_sorted = sorted(days, key=lambda d: assigned_days_count[d])
                 
-                for pass_num in range(2):
-                    current_max = max_per_day if pass_num == 0 else 5 # relax constraint on second pass
+                for pass_num in range(3):
+                    current_max = max_per_day if pass_num == 0 else 5
+                    enforce_max_hours = pass_num < 2
                     
                     for day in available_days_sorted:
                         if assigned_days_count[day] >= current_max:
@@ -103,7 +130,10 @@ class CSPSolver:
                             for s in group_subjects:
                                 fid = s.get("faculty_id")
                                 if fid:
-                                    if slot["id"] in faculty_availability.get(fid, set()):
+                                    if (
+                                        slot["id"] in faculty_availability.get(fid, set())
+                                        and not can_share_faculty_slot(s, fid, slot["id"])
+                                    ):
                                         all_faculty_available = False
                                         break
                                     
@@ -113,7 +143,7 @@ class CSPSolver:
                                     elif int(fid) in faculty_prefs:
                                         max_h = faculty_prefs[int(fid)].get("max_hours", 18)
                                         
-                                    if faculty_hours_count.get(fid, 0) >= max_h:
+                                    if enforce_max_hours and faculty_hours_count.get(fid, 0) >= max_h:
                                         all_faculty_available = False
                                         break
                             
@@ -176,8 +206,9 @@ class CSPSolver:
                 session_assigned = False
                 available_days_sorted = sorted(days, key=lambda d: assigned_days_count[d])
                 
-                for pass_num in range(2):
-                    current_max = max_per_day if pass_num == 0 else 5 # relax constraint on second pass
+                for pass_num in range(3):
+                    current_max = max_per_day if pass_num == 0 else 5
+                    enforce_max_hours = pass_num < 2
                     
                     for day in available_days_sorted:
                         if assigned_days_count[day] >= current_max:
@@ -190,7 +221,10 @@ class CSPSolver:
                             fid = subject.get("faculty_id")
                             
                             if fid:
-                                if slot["id"] in faculty_availability.get(fid, set()):
+                                if (
+                                    slot["id"] in faculty_availability.get(fid, set())
+                                    and not can_share_faculty_slot(subject, fid, slot["id"])
+                                ):
                                      continue
                                 
                                 max_h = 18
@@ -199,7 +233,7 @@ class CSPSolver:
                                 elif int(fid) in faculty_prefs:
                                     max_h = faculty_prefs[int(fid)].get("max_hours", 18)
                                     
-                                if faculty_hours_count.get(fid, 0) >= max_h:
+                                if enforce_max_hours and faculty_hours_count.get(fid, 0) >= max_h:
                                     continue
                                  
                             schedule.append({

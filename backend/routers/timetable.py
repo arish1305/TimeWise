@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 import random
 
 from database import get_db
@@ -12,6 +12,257 @@ router = APIRouter(
     prefix="/timetables",
     tags=["timetables"]
 )
+
+COMMITMENT_STATUSES = ("ACTIVE", "APPROVED")
+DAY_ORDER = {
+    "Monday": 1,
+    "Tuesday": 2,
+    "Wednesday": 3,
+    "Thursday": 4,
+    "Friday": 5,
+    "Saturday": 6,
+    "Sunday": 7,
+}
+
+
+def _is_cbcs_subject(subject: Optional[models.Subject]) -> bool:
+    if not subject:
+        return False
+    allowed_departments = getattr(subject, "allowed_department_ids", None) or []
+    return bool(allowed_departments)
+
+
+def _entries_share_cbcs_session(left: models.TimetableEntry, right: models.TimetableEntry) -> bool:
+    if not left.subject or not right.subject:
+        return False
+    return (
+        left.subject_id == right.subject_id
+        and left.faculty_id == right.faculty_id
+        and left.timeslot_id == right.timeslot_id
+        and _is_cbcs_subject(left.subject)
+        and _is_cbcs_subject(right.subject)
+    )
+
+
+def _subject_overlap_group_key(subject: Optional[models.Subject], timeslot_id: Optional[int]) -> Optional[str]:
+    if not subject or not subject.is_elective:
+        return None
+
+    group_id = (subject.elective_group_id or "").strip()
+    if group_id:
+        return f"G:{group_id}"
+
+    manual_slots = getattr(subject, "manual_timeslot_ids", []) or []
+    if timeslot_id in manual_slots:
+        return f"M:{timeslot_id}"
+    return None
+
+
+def _entries_can_overlap_in_section(entries: List[models.TimetableEntry]) -> bool:
+    subject_ids = [entry.subject_id for entry in entries if entry.subject_id]
+    if len(subject_ids) != len(set(subject_ids)):
+        return False
+
+    if not entries:
+        return True
+    slot_id = entries[0].timeslot_id
+
+    group_keys = set()
+    for entry in entries:
+        if not entry.subject:
+            return False
+        group_key = _subject_overlap_group_key(entry.subject, slot_id)
+        if not group_key:
+            return False
+        group_keys.add(group_key)
+    return len(group_keys) == 1
+
+
+def _solve_timetable_locally(
+    subjects: List[Dict[str, Any]],
+    faculty: List[Dict[str, Any]],
+    timeslots: List[Dict[str, Any]],
+    constraints: Dict[str, Any],
+    locked_slots: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    subject_by_id = {subject["id"]: subject for subject in subjects}
+    faculty_by_id = {item["id"]: item for item in faculty}
+    faculty_preferences = constraints.get("faculty_preferences", {}) or {}
+    prior_commitments = constraints.get("prior_commitments", {}) or {}
+    prior_entries = constraints.get("prior_commitment_entries", {}) or {}
+
+    sorted_slots = sorted(
+        timeslots,
+        key=lambda slot: (DAY_ORDER.get(slot.get("day"), 99), str(slot.get("time", "")), slot["id"])
+    )
+
+    faculty_busy = {item["id"]: set() for item in faculty}
+    faculty_hours = {item["id"]: 0 for item in faculty}
+    section_busy = set()
+    locked_hours = {}
+    subject_day_count: Dict[int, Dict[str, int]] = {}
+    prior_subjects_by_faculty_slot: Dict[int, Dict[int, List[int]]] = {}
+
+    for fid, entries in prior_entries.items():
+        try:
+            faculty_id = int(fid)
+        except (TypeError, ValueError):
+            continue
+        for entry in entries or []:
+            ts_id = entry.get("timeslot_id")
+            subject_id = entry.get("subject_id")
+            if ts_id is None:
+                continue
+            prior_subjects_by_faculty_slot.setdefault(faculty_id, {}).setdefault(ts_id, []).append(subject_id)
+
+    for fid, slots in prior_commitments.items():
+        try:
+            faculty_id = int(fid)
+        except (TypeError, ValueError):
+            continue
+        faculty_busy.setdefault(faculty_id, set()).update(slots or [])
+        faculty_hours[faculty_id] = faculty_hours.get(faculty_id, 0) + len(slots or [])
+
+    for locked in locked_slots or []:
+        subject_id = locked.get("subject_id")
+        faculty_id = locked.get("faculty_id")
+        timeslot_id = locked.get("timeslot_id")
+        if timeslot_id is None:
+            continue
+
+        section_busy.add(timeslot_id)
+        if subject_id:
+            locked_hours[subject_id] = locked_hours.get(subject_id, 0) + 1
+            slot = next((item for item in sorted_slots if item["id"] == timeslot_id), None)
+            if slot:
+                subject_day_count.setdefault(subject_id, {}).setdefault(slot.get("day"), 0)
+                subject_day_count[subject_id][slot.get("day")] += 1
+        if faculty_id:
+            faculty_busy.setdefault(faculty_id, set()).add(timeslot_id)
+            faculty_hours[faculty_id] = faculty_hours.get(faculty_id, 0) + 1
+
+    def max_hours_for(faculty_id: int) -> int:
+        prefs = faculty_preferences.get(faculty_id) or faculty_preferences.get(str(faculty_id)) or {}
+        return int(prefs.get("max_hours", 18) or 18)
+
+    def can_share_faculty_slot(subject: Dict[str, Any], faculty_id: int, timeslot_id: int) -> bool:
+        if not subject.get("is_cbcs_shared"):
+            return False
+        committed_subjects = prior_subjects_by_faculty_slot.get(faculty_id, {}).get(timeslot_id, [])
+        return bool(committed_subjects) and all(subject_id == subject.get("id") for subject_id in committed_subjects)
+
+    def faculty_available(subject: Dict[str, Any], timeslot_id: int, enforce_max_hours: bool) -> bool:
+        faculty_id = subject.get("faculty_id")
+        if not faculty_id:
+            return True
+        if timeslot_id in faculty_busy.get(faculty_id, set()) and not can_share_faculty_slot(subject, faculty_id, timeslot_id):
+            return False
+        return not enforce_max_hours or faculty_hours.get(faculty_id, 0) < max_hours_for(faculty_id)
+
+    def remember(entry: Dict[str, Any], slot: Dict[str, Any]) -> None:
+        subject_id = entry["subject_id"]
+        faculty_id = entry.get("faculty_id")
+        timeslot_id = entry["timeslot_id"]
+        section_busy.add(timeslot_id)
+        subject_day_count.setdefault(subject_id, {}).setdefault(slot.get("day"), 0)
+        subject_day_count[subject_id][slot.get("day")] += 1
+        if faculty_id:
+            faculty_busy.setdefault(faculty_id, set()).add(timeslot_id)
+            faculty_hours[faculty_id] = faculty_hours.get(faculty_id, 0) + 1
+
+    def ordered_slots_for(subject: Dict[str, Any]) -> List[Dict[str, Any]]:
+        subject_id = subject["id"]
+        return sorted(
+            sorted_slots,
+            key=lambda slot: (
+                subject_day_count.get(subject_id, {}).get(slot.get("day"), 0),
+                DAY_ORDER.get(slot.get("day"), 99),
+                str(slot.get("time", "")),
+                slot["id"],
+            )
+        )
+
+    schedule: List[Dict[str, Any]] = []
+
+    elective_groups: Dict[str, List[Dict[str, Any]]] = {}
+    core_subjects: List[Dict[str, Any]] = []
+    for subject in subjects:
+        group_id = str(subject.get("elective_group_id") or "").strip()
+        if subject.get("is_elective") and group_id:
+            elective_groups.setdefault(group_id, []).append(subject)
+        else:
+            core_subjects.append(subject)
+
+    for group_subjects in elective_groups.values():
+        sessions_needed = max(
+            max(0, int(subject.get("credits", 3) or 0) - locked_hours.get(subject["id"], 0))
+            for subject in group_subjects
+        )
+        for _ in range(sessions_needed):
+            assigned = False
+            for enforce_max_hours in (True, False):
+                for slot in sorted_slots:
+                    if slot["id"] in section_busy:
+                        continue
+                    if not all(faculty_available(subject, slot["id"], enforce_max_hours) for subject in group_subjects):
+                        continue
+                    for subject in group_subjects:
+                        entry = {
+                            "subject_id": subject["id"],
+                            "faculty_id": subject.get("faculty_id"),
+                            "timeslot_id": slot["id"],
+                        }
+                        schedule.append(entry)
+                        remember(entry, slot)
+                    assigned = True
+                    break
+                if assigned:
+                    break
+            if not assigned:
+                break
+
+    core_subjects.sort(
+        key=lambda subject: int(subject.get("credits", 3) or 0) - locked_hours.get(subject["id"], 0),
+        reverse=True
+    )
+    for subject in core_subjects:
+        sessions_needed = max(0, int(subject.get("credits", 3) or 0) - locked_hours.get(subject["id"], 0))
+        for _ in range(sessions_needed):
+            assigned = False
+            for enforce_max_hours in (True, False):
+                for slot in ordered_slots_for(subject):
+                    if slot["id"] in section_busy:
+                        continue
+                    if not faculty_available(subject, slot["id"], enforce_max_hours):
+                        continue
+                    entry = {
+                        "subject_id": subject["id"],
+                        "faculty_id": subject.get("faculty_id"),
+                        "timeslot_id": slot["id"],
+                    }
+                    schedule.append(entry)
+                    remember(entry, slot)
+                    assigned = True
+                    break
+                if assigned:
+                    break
+
+            if not assigned:
+                for slot in ordered_slots_for(subject):
+                    if slot["id"] not in section_busy:
+                        entry = {
+                            "subject_id": subject["id"],
+                            "faculty_id": None,
+                            "timeslot_id": slot["id"],
+                        }
+                        schedule.append(entry)
+                        remember(entry, slot)
+                        assigned = True
+                        break
+            if not assigned:
+                break
+
+    return schedule
 
 
 def _build_faculty_timetable_payload(faculty: models.Faculty, db: Session):
@@ -86,13 +337,13 @@ def validate_timetable_internal(timetable: models.Timetable, db: Session):
     
     other_entries = db.query(models.TimetableEntry).join(models.Timetable).filter(
         models.Timetable.id != timetable.id,
-        models.Timetable.status != "ARCHIVED"
+        models.Timetable.status.in_(COMMITMENT_STATUSES)
     ).all()
     
     faculty_slots = {}
     for e in other_entries:
         if e.faculty_id:
-            faculty_slots.setdefault(e.faculty_id, {}).setdefault(e.timeslot_id, []).append(True)
+            faculty_slots.setdefault(e.faculty_id, {}).setdefault(e.timeslot_id, []).append(e)
             
     subject_days = {}
     faculty_daily_load = {}
@@ -105,10 +356,12 @@ def validate_timetable_internal(timetable: models.Timetable, db: Session):
             
         if entry.faculty_id:
             if entry.faculty_id in faculty_slots and entry.timeslot_id in faculty_slots[entry.faculty_id]:
-                fac = db.query(models.Faculty).get(entry.faculty_id)
-                errors.append(f"Faculty conflict: {fac.name if fac else ''} booked at {ts.day} {ts.start_time}.")
-                error_slots.append(entry.timeslot_id)
-            faculty_slots.setdefault(entry.faculty_id, {}).setdefault(entry.timeslot_id, []).append(True)
+                conflicting_entries = faculty_slots[entry.faculty_id][entry.timeslot_id]
+                if not all(_entries_share_cbcs_session(entry, existing) for existing in conflicting_entries):
+                    fac = db.query(models.Faculty).get(entry.faculty_id)
+                    errors.append(f"Faculty conflict: {fac.name if fac else ''} booked at {ts.day} {ts.start_time}.")
+                    error_slots.append(entry.timeslot_id)
+            faculty_slots.setdefault(entry.faculty_id, {}).setdefault(entry.timeslot_id, []).append(entry)
             
             faculty_daily_load.setdefault(entry.faculty_id, {}).setdefault(ts.day, 0)
             faculty_daily_load[entry.faculty_id][ts.day] += 1
@@ -123,9 +376,8 @@ def validate_timetable_internal(timetable: models.Timetable, db: Session):
             
     for ts_id, entries in section_slots.items():
         if len(entries) > 1:
-            all_electives = all(e.subject and e.subject.is_elective for e in entries)
-            if not all_electives:
-                errors.append(f"Section conflict: Multiple subjects overlapping in a single timeslot.")
+            if not _entries_can_overlap_in_section(entries):
+                errors.append("Section conflict: Multiple unrelated subjects overlap in a single timeslot.")
                 error_slots.append(ts_id)
                 
     for subject_id, days in subject_days.items():
@@ -214,23 +466,64 @@ def generate_timetable(
 
         subjects_by_id = {s.id: s for s in subjects_db}
 
-        def can_share_locked_slot(subject, ts_id):
-            if not subject.is_elective or subject.elective_group_id is None:
-                return False
+        def get_subject(subject_id: Optional[int]) -> Optional[models.Subject]:
+            if not subject_id:
+                return None
+            subject = subjects_by_id.get(subject_id)
+            if subject:
+                return subject
+            return db.query(models.Subject).get(subject_id)
 
-            existing_entries = locked_entries_by_slot.get(ts_id, [])
+        def can_share_slot_with_existing(
+            subject_obj: Optional[models.Subject],
+            existing_entries: List[dict],
+            timeslot_id: Optional[int]
+        ) -> bool:
             if not existing_entries:
                 return True
+            current_group_key = _subject_overlap_group_key(subject_obj, timeslot_id)
+            if not current_group_key:
+                return False
 
             for existing in existing_entries:
-                existing_subject = subjects_by_id.get(existing["subject_id"])
+                existing_subject = get_subject(existing.get("subject_id"))
+                existing_group_key = _subject_overlap_group_key(existing_subject, timeslot_id)
                 if (
                     not existing_subject
-                    or not existing_subject.is_elective
-                    or existing_subject.elective_group_id != subject.elective_group_id
+                    or not existing_group_key
+                    or existing_group_key != current_group_key
+                    or existing_subject.id == subject_obj.id
                 ):
                     return False
             return True
+
+        def resolve_faculty_id(subject_id: int) -> Optional[int]:
+            assignments = db.query(models.FacultySubjectAssignment).filter(
+                models.FacultySubjectAssignment.subject_id == subject_id
+            ).order_by(models.FacultySubjectAssignment.preference_level.asc()).all()
+
+            for assignment in assignments:
+                if not assignment.section_ids or request.section_id in assignment.section_ids:
+                    return assignment.faculty_id
+            return None
+
+        subject_faculty_ids = {s.id: resolve_faculty_id(s.id) for s in subjects_db}
+        for s in subjects_db:
+            if not _is_cbcs_subject(s):
+                continue
+
+            existing_shared_faculty = db.query(models.TimetableEntry.faculty_id).join(models.Timetable).filter(
+                models.Timetable.section_id != request.section_id,
+                models.Timetable.semester == request.semester,
+                models.Timetable.status.in_(COMMITMENT_STATUSES),
+                models.TimetableEntry.subject_id == s.id,
+                models.TimetableEntry.faculty_id.isnot(None),
+            ).first()
+            if existing_shared_faculty and existing_shared_faculty[0]:
+                subject_faculty_ids[s.id] = existing_shared_faculty[0]
+
+        def can_share_locked_slot(subject, ts_id):
+            return can_share_slot_with_existing(subject, locked_entries_by_slot.get(ts_id, []), ts_id)
 
         def remember_locked_entry(subject_id, faculty_id, timeslot_id):
             locked_slot_ids.add(timeslot_id)
@@ -249,9 +542,24 @@ def generate_timetable(
             # Fetch existing locked entries (Manual Locks from UI)
             locked_entries = db.query(models.TimetableEntry).filter(
                 models.TimetableEntry.timetable_id == existing_tt.id,
-                models.TimetableEntry.is_locked == True
+                models.TimetableEntry.is_locked == True,
+                models.TimetableEntry.created_by.in_([
+                    models.EntryCreator.ADMIN.value,
+                    str(models.EntryCreator.ADMIN),
+                ])
             ).all()
             for e in locked_entries:
+                subject_obj = get_subject(e.subject_id)
+                if not can_share_locked_slot(subject_obj, e.timeslot_id):
+                    slot = db.query(models.TimeSlot).get(e.timeslot_id)
+                    raise HTTPException(
+                        status_code=400,
+                        detail=(
+                            f"Locked slot conflict at {slot.day if slot else 'Unknown'} "
+                            f"{slot.start_time if slot else e.timeslot_id}. "
+                            "Adjust locked entries so only same elective-group subjects overlap."
+                        )
+                    )
                 remember_locked_entry(e.subject_id, e.faculty_id, e.timeslot_id)
                 # Add it to DB right away to the new_timetable
                 db.add(models.TimetableEntry(
@@ -260,22 +568,14 @@ def generate_timetable(
                     subject_id=e.subject_id,
                     faculty_id=e.faculty_id,
                     is_locked=True,
-                    created_by=models.EntryCreator.ADMIN
+                    created_by=models.EntryCreator.ADMIN.value
                 ))
 
         # Sync manual slots from Subject definitions
         for s in subjects_db:
             m_slots = getattr(s, 'manual_timeslot_ids', []) or []
             if m_slots:
-                # Find faculty for this section
-                a_list = db.query(models.FacultySubjectAssignment).filter(
-                    models.FacultySubjectAssignment.subject_id == s.id
-                ).all()
-                f_id = None
-                for a in a_list:
-                    if not a.section_ids or request.section_id in a.section_ids:
-                        f_id = a.faculty_id
-                        break
+                f_id = subject_faculty_ids.get(s.id)
                 
                 for ts_id in m_slots:
                     locked_key_exists = any(
@@ -293,10 +593,63 @@ def generate_timetable(
                             subject_id=s.id,
                             faculty_id=f_id,
                             is_locked=True,
-                            created_by=models.EntryCreator.ADMIN
+                            created_by=models.EntryCreator.ADMIN.value
                         )
                         db.add(entry)
                         remember_locked_entry(s.id, f_id, ts_id)
+
+        # Reuse already generated CBCS slots for shared subjects. This keeps one
+        # shared subject with one staff member at the same hour across departments.
+        for s in subjects_db:
+            if not _is_cbcs_subject(s):
+                continue
+
+            f_id = subject_faculty_ids.get(s.id)
+            if not f_id:
+                continue
+
+            shared_entries = db.query(models.TimetableEntry).join(models.Timetable).filter(
+                models.Timetable.section_id != request.section_id,
+                models.Timetable.semester == request.semester,
+                models.Timetable.status.in_(COMMITMENT_STATUSES),
+                models.TimetableEntry.subject_id == s.id,
+                models.TimetableEntry.faculty_id == f_id,
+            ).all()
+
+            inherited_timeslots = []
+            seen_timeslots = set()
+            for shared_entry in shared_entries:
+                if shared_entry.timeslot_id in seen_timeslots:
+                    continue
+                seen_timeslots.add(shared_entry.timeslot_id)
+                inherited_timeslots.append(shared_entry.timeslot_id)
+
+            for ts_id in inherited_timeslots[:s.weekly_hours]:
+                locked_key_exists = any(
+                    entry["subject_id"] == s.id for entry in locked_entries_by_slot.get(ts_id, [])
+                )
+                if locked_key_exists:
+                    continue
+
+                if ts_id in locked_slot_ids and not can_share_locked_slot(s, ts_id):
+                    slot = db.query(models.TimeSlot).get(ts_id)
+                    raise HTTPException(
+                        status_code=400,
+                        detail=(
+                            f"CBCS subject '{s.code}' must share {slot.day} {slot.start_time if slot else ts_id}, "
+                            "but this section already has a locked class there."
+                        )
+                    )
+
+                db.add(models.TimetableEntry(
+                    timetable_id=new_timetable.id,
+                    timeslot_id=ts_id,
+                    subject_id=s.id,
+                    faculty_id=f_id,
+                    is_locked=True,
+                    created_by=models.EntryCreator.AI.value
+                ))
+                remember_locked_entry(s.id, f_id, ts_id)
         db.flush()
 
         # 5. Prepare Data for AI Engine
@@ -305,12 +658,7 @@ def generate_timetable(
         subjects_payload = []
         faculty_ids = set()
         for s in subjects_db:
-            assigns = db.query(models.FacultySubjectAssignment).filter(
-                models.FacultySubjectAssignment.subject_id == s.id
-            ).all()
-            
-            section_eligible_assigns = [a for a in assigns if not a.section_ids or request.section_id in a.section_ids]
-            fid = section_eligible_assigns[0].faculty_id if section_eligible_assigns else None
+            fid = subject_faculty_ids.get(s.id)
             if fid: faculty_ids.add(fid)
                 
             # Send TOTAL weekly hours; AI engine will handle subtraction of locked sessions
@@ -320,7 +668,8 @@ def generate_timetable(
                 "credits": s.weekly_hours, 
                 "faculty_id": fid,
                 "is_elective": s.is_elective,
-                "elective_group_id": s.elective_group_id
+                "elective_group_id": s.elective_group_id,
+                "is_cbcs_shared": _is_cbcs_subject(s),
             })
 
         faculty_db = db.query(models.Faculty).filter(models.Faculty.id.in_(faculty_ids)).all()
@@ -329,13 +678,18 @@ def generate_timetable(
         
         # Fetch commitments/preferences
         existing_commitments = {}
+        prior_commitment_entries = {}
         conflicting_entries = db.query(models.TimetableEntry).join(models.Timetable).filter(
             models.Timetable.section_id != request.section_id,
-            models.Timetable.status != "ARCHIVED"
+            models.Timetable.status.in_(COMMITMENT_STATUSES)
         ).all()
         for e in conflicting_entries:
             if e.faculty_id and e.faculty_id in faculty_ids:
                 existing_commitments.setdefault(e.faculty_id, []).append(e.timeslot_id)
+                prior_commitment_entries.setdefault(e.faculty_id, []).append({
+                    "timeslot_id": e.timeslot_id,
+                    "subject_id": e.subject_id,
+                })
         
         faculty_preferences = {f.id: {"max_hours": f.max_hours_per_week, "preferred_slots": f.preferred_slots} for f in faculty_db}
 
@@ -347,6 +701,7 @@ def generate_timetable(
             "locked_slots": locked_slots_payload,
             "constraints": {
                 "prior_commitments": existing_commitments,
+                "prior_commitment_entries": prior_commitment_entries,
                 "faculty_preferences": faculty_preferences
             }
         }
@@ -369,15 +724,25 @@ def generate_timetable(
         except urllib.error.HTTPError as e:
             # Handle AI Engine 400 Bad Request (Validation/Clash errors)
             if e.code == 400:
-                error_body = json.loads(e.read().decode('utf-8'))
-                db.rollback()
-                raise HTTPException(status_code=400, detail=error_body.get("detail", "AI Engine encountered a clash."))
+                e.read()
+                schedule = _solve_timetable_locally(
+                    subjects=subjects_payload,
+                    faculty=faculty_payload,
+                    timeslots=timeslots_payload,
+                    constraints=payload["constraints"],
+                    locked_slots=locked_slots_payload,
+                )
             else:
                 db.rollback()
                 raise HTTPException(status_code=500, detail=f"AI Engine Error: {e.reason}")
         except Exception as e:
-            db.rollback()
-            raise HTTPException(status_code=500, detail=f"Failed to communicate with AI Engine: {e}")
+            schedule = _solve_timetable_locally(
+                subjects=subjects_payload,
+                faculty=faculty_payload,
+                timeslots=timeslots_payload,
+                constraints=payload["constraints"],
+                locked_slots=locked_slots_payload,
+            )
 
         if schedule is not None:
             # Clear previous attempt entries for AI (keeping locked)
@@ -386,12 +751,13 @@ def generate_timetable(
                 models.TimetableEntry.is_locked == False
             ).delete()
             
-            section_occupied_slots = set(locked_slot_ids)
+            section_entries_by_slot = {
+                ts_id: list(entries) for ts_id, entries in locked_entries_by_slot.items()
+            }
             for item in schedule:
                 sub_obj = db.query(models.Subject).get(item['subject_id'])
-                is_el = (sub_obj.is_elective and sub_obj.elective_group_id) if sub_obj else False
-                
-                if not is_el and item['timeslot_id'] in section_occupied_slots:
+                slot_entries = section_entries_by_slot.get(item['timeslot_id'], [])
+                if slot_entries and not can_share_slot_with_existing(sub_obj, slot_entries, item['timeslot_id']):
                     continue
 
                 entry = models.TimetableEntry(
@@ -400,11 +766,14 @@ def generate_timetable(
                     faculty_id=item.get('faculty_id'),
                     timeslot_id=item['timeslot_id'],
                     is_locked=False,
-                    created_by=models.EntryCreator.AI
+                    created_by=models.EntryCreator.AI.value
                 )
                 db.add(entry)
-                if not is_el:
-                    section_occupied_slots.add(item['timeslot_id'])
+                section_entries_by_slot.setdefault(item['timeslot_id'], []).append({
+                    "subject_id": item["subject_id"],
+                    "faculty_id": item.get("faculty_id"),
+                    "timeslot_id": item["timeslot_id"],
+                })
             
             db.flush()
             
@@ -665,18 +1034,24 @@ def get_timetable(
         "entries": list(tt.entries)
     }
 
-    # Find all CBCS entries in the same semester that share a timeslot with an elective in this timetable
-    elective_timeslots = set()
+    # Find related CBCS/elective entries in active timetables that share a slot
+    # with an elective in this timetable.
+    shared_timeslots = set()
+    elective_group_ids = set()
+    cbcs_subject_ids = set()
     for entry in tt.entries:
-        if entry.subject and entry.subject.is_elective:
-            elective_timeslots.add(entry.timeslot_id)
+        if entry.subject and (entry.subject.is_elective or _is_cbcs_subject(entry.subject)):
+            shared_timeslots.add(entry.timeslot_id)
+            if entry.subject.elective_group_id:
+                elective_group_ids.add(entry.subject.elective_group_id)
+            if _is_cbcs_subject(entry.subject):
+                cbcs_subject_ids.add(entry.subject_id)
             
-    if elective_timeslots:
-        # Find all other entries in the same semester for these timeslots that are also electives
+    if shared_timeslots:
         other_entries = db.query(models.TimetableEntry).join(models.Timetable).join(models.Subject).filter(
             models.Timetable.semester == tt.semester,
-            models.TimetableEntry.timeslot_id.in_(elective_timeslots),
-            models.Subject.is_elective == True,
+            models.Timetable.status.in_(COMMITMENT_STATUSES),
+            models.TimetableEntry.timeslot_id.in_(shared_timeslots),
             models.Timetable.id != tt.id
         ).all()
         
@@ -684,6 +1059,15 @@ def get_timetable(
         existing_keys = {(e.subject_id, e.timeslot_id) for e in tt.entries}
         
         for entry in other_entries:
+            is_related_cbcs = entry.subject_id in cbcs_subject_ids
+            is_related_elective_group = (
+                entry.subject
+                and entry.subject.elective_group_id
+                and entry.subject.elective_group_id in elective_group_ids
+            )
+            if not is_related_cbcs and not is_related_elective_group:
+                continue
+
             key = (entry.subject_id, entry.timeslot_id)
             if key not in existing_keys:
                 tt_dict["entries"].append(entry)

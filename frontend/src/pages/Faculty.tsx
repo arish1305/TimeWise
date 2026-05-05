@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import api from '../api/axios';
-import { Plus, Edit2, Trash2, User, BookOpen, Check, X } from 'lucide-react';
+import { Plus, Edit2, Trash2, User, BookOpen, Check, X, Upload, Download } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface Subject {
@@ -38,6 +38,7 @@ interface Faculty {
     faculty_type: string;
     min_hours_per_week: number;
     max_hours_per_week: number;
+    departments?: Department[];
     qualified_subjects?: { subject_id: number; preference_level: number; section_ids?: number[] }[];
 }
 
@@ -46,9 +47,19 @@ interface SubjectAssignment {
     section_ids: number[];
 }
 
+interface BulkFacultyRow {
+    name: string;
+    faculty_id_code: string;
+    faculty_type: string;
+    min_hours_per_week: number;
+    max_hours_per_week: number;
+    department_codes: string;
+}
+
 const FacultyManager = () => {
     const [facultyList, setFacultyList] = useState<Faculty[]>([]);
     const [showForm, setShowForm] = useState(false);
+    const [showBulkPanel, setShowBulkPanel] = useState(false);
     const [editingId, setEditingId] = useState<number | null>(null);
 
     // Subject Assignment State
@@ -66,8 +77,12 @@ const FacultyManager = () => {
         faculty_id_code: '',
         faculty_type: 'ASSISTANT_PROFESSOR',
         min_hours_per_week: 5,
-        max_hours_per_week: 18
+        max_hours_per_week: 18,
+        department_ids: [] as number[]
     });
+    const [bulkRows, setBulkRows] = useState<BulkFacultyRow[]>([createEmptyBulkRow()]);
+    const [bulkFile, setBulkFile] = useState<File | null>(null);
+    const [bulkLoading, setBulkLoading] = useState(false);
 
     useEffect(() => {
         fetchFaculty();
@@ -132,7 +147,8 @@ const FacultyManager = () => {
             faculty_id_code: '',
             faculty_type: 'ASSISTANT_PROFESSOR',
             min_hours_per_week: 5,
-            max_hours_per_week: 18
+            max_hours_per_week: 18,
+            department_ids: []
         });
     };
 
@@ -142,11 +158,125 @@ const FacultyManager = () => {
             faculty_id_code: fac.faculty_id_code || '',
             faculty_type: fac.faculty_type,
             min_hours_per_week: fac.min_hours_per_week,
-            max_hours_per_week: fac.max_hours_per_week
+            max_hours_per_week: fac.max_hours_per_week,
+            department_ids: fac.departments?.map(dept => dept.id) || []
         });
         setEditingId(fac.id);
         setShowForm(true);
         window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+
+    function createEmptyBulkRow(): BulkFacultyRow {
+        return {
+            name: '',
+            faculty_id_code: '',
+            faculty_type: 'ASSISTANT_PROFESSOR',
+            min_hours_per_week: 5,
+            max_hours_per_week: 18,
+            department_codes: ''
+        };
+    }
+
+    const updateBulkRow = (index: number, field: keyof BulkFacultyRow, value: string | number) => {
+        setBulkRows(prev => prev.map((row, rowIndex) => (
+            rowIndex === index ? { ...row, [field]: value } : row
+        )));
+    };
+
+    const addBulkRow = () => {
+        setBulkRows(prev => [...prev, createEmptyBulkRow()]);
+    };
+
+    const removeBulkRow = (index: number) => {
+        setBulkRows(prev => prev.length === 1 ? prev : prev.filter((_, rowIndex) => rowIndex !== index));
+    };
+
+    const resetBulkPanel = () => {
+        setBulkRows([createEmptyBulkRow()]);
+        setBulkFile(null);
+    };
+
+    const handleBulkResult = async (result: { created_count: number; errors: string[] }) => {
+        await fetchFaculty();
+        const messages = [
+            `Created ${result.created_count} faculty record${result.created_count === 1 ? '' : 's'}.`
+        ];
+        if (result.errors.length > 0) {
+            messages.push('', 'Some rows were skipped:', ...result.errors);
+        }
+        alert(messages.join('\n'));
+    };
+
+    const submitManualBulk = async () => {
+        const rows = bulkRows
+            .filter(row => row.name.trim() || row.faculty_id_code.trim() || row.department_codes.trim())
+            .map(row => ({
+                ...row,
+                faculty_id_code: row.faculty_id_code.trim() || null,
+                department_codes: row.department_codes
+                    .split(/[,;|]/)
+                    .map(code => code.trim().toUpperCase())
+                    .filter(Boolean)
+            }));
+
+        if (rows.length === 0) {
+            alert('Add at least one faculty row before bulk saving.');
+            return;
+        }
+
+        setBulkLoading(true);
+        try {
+            const res = await api.post('/admin/faculty/bulk', { rows });
+            await handleBulkResult(res.data);
+            resetBulkPanel();
+        } catch (err: any) {
+            console.error(err);
+            alert(err.response?.data?.detail || 'Failed to save bulk faculty data.');
+        } finally {
+            setBulkLoading(false);
+        }
+    };
+
+    const uploadBulkFile = async () => {
+        if (!bulkFile) {
+            alert('Choose a CSV or XLSX file first.');
+            return;
+        }
+
+        const formPayload = new FormData();
+        formPayload.append('file', bulkFile);
+
+        setBulkLoading(true);
+        try {
+            const res = await api.post('/admin/faculty/bulk-upload', formPayload, {
+                headers: { 'Content-Type': 'multipart/form-data' }
+            });
+            await handleBulkResult(res.data);
+            resetBulkPanel();
+        } catch (err: any) {
+            console.error(err);
+            alert(err.response?.data?.detail || 'Failed to upload faculty file.');
+        } finally {
+            setBulkLoading(false);
+        }
+    };
+
+    const downloadTemplate = async () => {
+        try {
+            const res = await api.get('/admin/faculty/template', { responseType: 'blob' });
+            const blob = new Blob([res.data], { type: res.headers['content-type'] || 'application/octet-stream' });
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = 'faculty_bulk_template.xlsx';
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.URL.revokeObjectURL(url);
+        } catch (err) {
+            console.error(err);
+            alert('Failed to download faculty template.');
+        }
     };
 
     const deleteFaculty = async (id: number) => {
@@ -217,14 +347,125 @@ const FacultyManager = () => {
         <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
                 <h1 style={{ fontSize: '2rem', fontWeight: 800 }}>Faculty Management</h1>
-                <button className="btn btn-primary" onClick={() => {
-                    setEditingId(null);
-                    resetForm();
-                    setShowForm(true);
-                }}>
-                    <Plus size={20} /> Add Faculty
-                </button>
+                <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                    <button className="btn" onClick={() => setShowBulkPanel(prev => !prev)}>
+                        <Upload size={18} /> {showBulkPanel ? 'Hide Bulk Onboarding' : 'Bulk Onboarding'}
+                    </button>
+                    <button className="btn btn-primary" onClick={() => {
+                        setEditingId(null);
+                        resetForm();
+                        setShowForm(true);
+                    }}>
+                        <Plus size={20} /> Add Faculty
+                    </button>
+                </div>
             </div>
+
+            <AnimatePresence>
+                {showBulkPanel && (
+                    <motion.div
+                        initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
+                        className="card" style={{ marginBottom: '2rem', borderLeft: '4px solid var(--secondary-color)' }}
+                    >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap', alignItems: 'flex-start' }}>
+                            <div>
+                                <h3 style={{ marginBottom: '0.35rem' }}>Bulk Faculty Onboarding</h3>
+                                <p style={{ margin: 0, color: 'var(--text-secondary)' }}>
+                                    Add multiple faculty manually below, or upload a `.csv` or `.xlsx` file using the template format.
+                                </p>
+                            </div>
+                            <button className="btn" onClick={downloadTemplate}>
+                                <Download size={18} /> Download Example Excel
+                            </button>
+                        </div>
+
+                        <div style={{ marginTop: '1.5rem', padding: '1rem', border: '1px solid var(--border-color)', borderRadius: '8px', background: 'var(--background-color)' }}>
+                            <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                                <input
+                                    type="file"
+                                    accept=".csv,.xlsx"
+                                    onChange={e => setBulkFile(e.target.files?.[0] || null)}
+                                />
+                                <button className="btn btn-primary" onClick={uploadBulkFile} disabled={bulkLoading}>
+                                    <Upload size={16} /> {bulkLoading ? 'Uploading...' : 'Upload File'}
+                                </button>
+                                {bulkFile && (
+                                    <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                                        {bulkFile.name}
+                                    </span>
+                                )}
+                            </div>
+                        </div>
+
+                        <div style={{ marginTop: '1.5rem' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                                <h4 style={{ margin: 0 }}>Manual Bulk Entry</h4>
+                                <button className="btn" onClick={addBulkRow}>
+                                    <Plus size={16} /> Add Row
+                                </button>
+                            </div>
+
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                                {bulkRows.map((row, index) => (
+                                    <div key={index} style={{
+                                        display: 'grid',
+                                        gridTemplateColumns: 'minmax(180px, 1.4fr) minmax(120px, 1fr) minmax(150px, 1fr) 110px 110px minmax(180px, 1.2fr) 44px',
+                                        gap: '0.75rem',
+                                        alignItems: 'end',
+                                        padding: '0.9rem',
+                                        border: '1px solid var(--border-color)',
+                                        borderRadius: '8px',
+                                        background: 'white'
+                                    }}>
+                                        <div className="input-group" style={{ marginBottom: 0 }}>
+                                            <label className="input-label">Name</label>
+                                            <input className="input-field" value={row.name} onChange={e => updateBulkRow(index, 'name', e.target.value)} />
+                                        </div>
+                                        <div className="input-group" style={{ marginBottom: 0 }}>
+                                            <label className="input-label">ID Code</label>
+                                            <input className="input-field" value={row.faculty_id_code} onChange={e => updateBulkRow(index, 'faculty_id_code', e.target.value)} />
+                                        </div>
+                                        <div className="input-group" style={{ marginBottom: 0 }}>
+                                            <label className="input-label">Designation</label>
+                                            <select className="input-field" value={row.faculty_type} onChange={e => updateBulkRow(index, 'faculty_type', e.target.value)}>
+                                                <option value="PROFESSOR">Professor</option>
+                                                <option value="ASSISTANT_PROFESSOR">Assistant Professor</option>
+                                                <option value="LAB_INSTRUCTOR">Lab Instructor</option>
+                                                <option value="GUEST">Guest</option>
+                                            </select>
+                                        </div>
+                                        <div className="input-group" style={{ marginBottom: 0 }}>
+                                            <label className="input-label">Min</label>
+                                            <input type="number" className="input-field" value={row.min_hours_per_week} onChange={e => updateBulkRow(index, 'min_hours_per_week', parseInt(e.target.value) || 0)} />
+                                        </div>
+                                        <div className="input-group" style={{ marginBottom: 0 }}>
+                                            <label className="input-label">Max</label>
+                                            <input type="number" className="input-field" value={row.max_hours_per_week} onChange={e => updateBulkRow(index, 'max_hours_per_week', parseInt(e.target.value) || 0)} />
+                                        </div>
+                                        <div className="input-group" style={{ marginBottom: 0 }}>
+                                            <label className="input-label">Department Codes</label>
+                                            <input className="input-field" placeholder="CSE,ECE" value={row.department_codes} onChange={e => updateBulkRow(index, 'department_codes', e.target.value)} />
+                                        </div>
+                                        <button className="btn" style={{ padding: '0.65rem', color: 'var(--error-color)' }} onClick={() => removeBulkRow(index)} title="Remove row">
+                                            <Trash2 size={16} />
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+
+                            <div style={{ marginTop: '1rem', display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                                <button className="btn btn-primary" onClick={submitManualBulk} disabled={bulkLoading}>
+                                    <Check size={16} /> {bulkLoading ? 'Saving...' : 'Save Bulk Faculty'}
+                                </button>
+                                <button className="btn" onClick={resetBulkPanel}>Reset Rows</button>
+                                <div style={{ alignSelf: 'center', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+                                    Department codes can be separated with commas, semicolons, or pipes.
+                                </div>
+                            </div>
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
 
             <AnimatePresence>
                 {showForm && (
@@ -261,6 +502,39 @@ const FacultyManager = () => {
                                 <div className="input-group" style={{ flex: 1 }}>
                                     <label className="input-label">Max Hours/Week</label>
                                     <input type="number" className="input-field" value={formData.max_hours_per_week} onChange={e => setFormData({ ...formData, max_hours_per_week: parseInt(e.target.value) })} />
+                                </div>
+                            </div>
+
+                            <div className="input-group" style={{ gridColumn: '1 / -1' }}>
+                                <label className="input-label">Departments</label>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                                    {availableDepartments.map(dept => {
+                                        const selected = formData.department_ids.includes(dept.id);
+                                        return (
+                                            <button
+                                                key={dept.id}
+                                                type="button"
+                                                onClick={() => setFormData(prev => ({
+                                                    ...prev,
+                                                    department_ids: selected
+                                                        ? prev.department_ids.filter(id => id !== dept.id)
+                                                        : [...prev.department_ids, dept.id]
+                                                }))}
+                                                style={{
+                                                    padding: '0.45rem 0.8rem',
+                                                    borderRadius: '999px',
+                                                    border: `1.5px solid ${selected ? 'var(--primary-color)' : 'var(--border-color)'}`,
+                                                    background: selected ? 'var(--primary-color)' : 'white',
+                                                    color: selected ? 'white' : 'var(--text-primary)',
+                                                    cursor: 'pointer',
+                                                    fontSize: '0.85rem',
+                                                    fontWeight: 600
+                                                }}
+                                            >
+                                                {dept.code}
+                                            </button>
+                                        );
+                                    })}
                                 </div>
                             </div>
                         </div>
@@ -458,6 +732,15 @@ const FacultyManager = () => {
                                         <span>•</span>
                                         <span>{fac.faculty_type.replace('_', ' ')}</span>
                                     </div>
+                                    {fac.departments && fac.departments.length > 0 && (
+                                        <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
+                                            {fac.departments.map(dept => (
+                                                <span key={dept.id} style={{ fontSize: '0.72rem', background: '#eef2ff', color: '#3730a3', padding: '2px 8px', borderRadius: '999px', fontWeight: 600 }}>
+                                                    {dept.code}
+                                                </span>
+                                            ))}
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                             <div style={{ display: 'flex', gap: '0.5rem' }}>

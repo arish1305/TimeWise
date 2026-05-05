@@ -1,22 +1,8 @@
 import { useState, useEffect } from 'react';
-import axios from 'axios';
-import { RefreshCw, Calendar, ChevronDown, Users, Filter, X, Check } from 'lucide-react';
+import { RefreshCw, Calendar, ChevronDown, Users, Filter, X, Check, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import api from '../api/axios';
 import '../styles/Timetables.css';
-
-// API Configuration
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-const axiosInstance = axios.create({
-    baseURL: API_URL,
-});
-
-axiosInstance.interceptors.request.use((config) => {
-    const token = localStorage.getItem('token');
-    if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-});
 
 const Timetables = () => {
     // Data State
@@ -45,7 +31,7 @@ const Timetables = () => {
 
     const fetchDepartments = async () => {
         try {
-            const res = await axiosInstance.get('/admin/departments');
+            const res = await api.get('/admin/departments');
             setDepartments(res.data);
         } catch (err) {
             console.error("Error fetching departments", err);
@@ -54,7 +40,7 @@ const Timetables = () => {
 
     const fetchTimeSlots = async () => {
         try {
-            const res = await axiosInstance.get('/admin/timeslots');
+            const res = await api.get('/admin/timeslots');
             const sorted = res.data.sort((a: any, b: any) => a.start_time.localeCompare(b.start_time));
             setTimeSlots(sorted);
         } catch (err) {
@@ -72,7 +58,7 @@ const Timetables = () => {
         if (!deptId) return;
 
         try {
-            const res = await axiosInstance.get(`/admin/academic-years?department_id=${deptId}`);
+            const res = await api.get(`/admin/academic-years?department_id=${deptId}`);
             setAcademicYears(res.data);
         } catch (err) {
             console.error(err);
@@ -87,7 +73,7 @@ const Timetables = () => {
         if (!yearId) return;
 
         try {
-            const res = await axiosInstance.get(`/admin/sections?year_id=${yearId}`);
+            const res = await api.get(`/admin/sections?year_id=${yearId}`);
             setSections(res.data);
         } catch (err) {
             console.error(err);
@@ -105,7 +91,7 @@ const Timetables = () => {
         setTimetable(null);
 
         try {
-            const res = await axiosInstance.post('/timetables/generate', {
+            const res = await api.post('/timetables/generate', {
                 section_id: parseInt(selectedSection),
                 semester: Number(semester)
             });
@@ -121,7 +107,7 @@ const Timetables = () => {
 
     const validateTimetable = async (id: number) => {
         try {
-            const res = await axiosInstance.post(`/timetables/${id}/validate`);
+            const res = await api.post(`/timetables/${id}/validate`);
             setValidation(res.data);
         } catch (err) {
             console.error("Validation failed", err);
@@ -146,7 +132,7 @@ const Timetables = () => {
         setError(null);
 
         try {
-            const res = await axiosInstance.post('/timetables/generate-all');
+            const res = await api.post('/timetables/generate-all');
             setBulkResults(res.data);
             // Auto-fetch all timetables after generation
             fetchAllTimetables();
@@ -158,9 +144,25 @@ const Timetables = () => {
         }
     };
 
+    const clearAllTimetables = async () => {
+        if (!window.confirm("Are you sure you want to delete ALL generated timetables? This action cannot be undone.")) return;
+        try {
+            const res = await api.delete('/timetables/clear-all');
+            setTimetable(null);
+            setAllTimetables([]);
+            setBulkResults(null);
+            setValidation(null);
+            setShowAllTimetables(false);
+            alert(res.data?.message || "All timetables have been successfully deleted.");
+        } catch (err: any) {
+            console.error("Failed to clear timetables", err);
+            setError("Failed to clear timetables.");
+        }
+    };
+
     const fetchAllTimetables = async () => {
         try {
-            const res = await axiosInstance.get('/timetables/');
+            const res = await api.get('/timetables/');
             setAllTimetables(res.data);
         } catch (err) {
             console.error("Failed to fetch timetables", err);
@@ -169,7 +171,7 @@ const Timetables = () => {
 
     const loadTimetable = async (timetableId: number) => {
         try {
-            const res = await axiosInstance.get(`/timetables/${timetableId}`);
+            const res = await api.get(`/timetables/${timetableId}`);
             setTimetable(res.data);
             setBulkResults(null);
             setShowAllTimetables(false);
@@ -246,15 +248,6 @@ const Timetables = () => {
                         <div className="value">
                             {timetable?.section?.name ||
                                 sections.find((s: any) => s.id == selectedSection)?.name || '-'}
-                        </div>
-                    </div>
-                    <div className="info-item">
-                        <span className="label">Room</span>
-                        <div className="value">
-                            {(() => {
-                                const roomEntry = timetable?.entries?.find((e: any) => e.room);
-                                return roomEntry?.room?.room_number || '-';
-                            })()}
                         </div>
                     </div>
                 </div>
@@ -506,6 +499,15 @@ const Timetables = () => {
                             <Filter size={18} />
                             View History
                         </button>
+                        
+                        <button
+                            className="btn btn-outline"
+                            onClick={clearAllTimetables}
+                            style={{ background: 'white', color: 'var(--danger-600)', borderColor: 'var(--danger-200)' }}
+                        >
+                            <Trash2 size={18} />
+                            Clear All
+                        </button>
                     </div>
                 </div>
             </div>
@@ -530,8 +532,11 @@ const Timetables = () => {
                                         onClick={async () => {
                                             if (window.confirm("Are you sure you want to clear all timetables history?")) {
                                                 try {
-                                                    await axiosInstance.delete('/timetables/clear-all');
-                                                    fetchAllTimetables();
+                                                    await api.delete('/timetables/clear-all');
+                                                    setTimetable(null);
+                                                    setAllTimetables([]);
+                                                    setBulkResults(null);
+                                                    setValidation(null);
                                                 } catch (e) { console.error("Failed to clear", e) }
                                             }
                                         }}
@@ -557,16 +562,26 @@ const Timetables = () => {
                                                 className="timetable-list-item"
                                                 onClick={() => loadTimetable(tt.id)}
                                             >
-                                                <div>
-                                                    <div className="item-title">
-                                                        {tt.section?.academic_year?.name || 'Unknown Year'} - Section {tt.section?.name || 'Unknown'}
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+                                                    <div>
+                                                        <div className="item-title">
+                                                            {tt.section?.academic_year?.name || 'Unknown Year'} - Section {tt.section?.name || 'Unknown'}
+                                                        </div>
+                                                        <div className="item-subtitle">
+                                                            Semester {tt.semester} • {tt.entries?.length || 0} classes
+                                                            <span style={{ marginLeft: '8px', padding: '2px 6px', borderRadius: '4px', fontSize: '0.75rem', background: tt.status === 'ACTIVE' ? '#dcfce7' : tt.status === 'ARCHIVED' ? '#f1f5f9' : '#fef9c3', color: tt.status === 'ACTIVE' ? '#166534' : tt.status === 'ARCHIVED' ? '#475569' : '#854d0e' }}>
+                                                                {tt.status}
+                                                            </span>
+                                                        </div>
+                                                        {tt.created_at && (
+                                                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                                                                Generated on: {new Date(tt.created_at).toLocaleString()} (v{tt.version || 1})
+                                                            </div>
+                                                        )}
                                                     </div>
-                                                    <div className="item-subtitle">
-                                                        Semester {tt.semester} • {tt.entries?.length || 0} classes
+                                                    <div className="item-action">
+                                                        View →
                                                     </div>
-                                                </div>
-                                                <div className="item-action">
-                                                    View →
                                                 </div>
                                             </div>
                                         ))}

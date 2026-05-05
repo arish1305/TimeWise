@@ -1,17 +1,22 @@
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, Users, Building2, Calendar } from 'lucide-react';
+import { LayoutDashboard, Users, Building2, Calendar, Clock3, LogOut, NotebookTabs } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 
 const Sidebar = () => {
-    // const { logout } = useAuth();
+    const { logout, role } = useAuth();
 
-    const navItems = [
-        { icon: LayoutDashboard, label: 'Dashboard', path: '/admin' },
-        { icon: Building2, label: 'Departments', path: '/admin/departments' },
-        { icon: Users, label: 'Faculty', path: '/admin/faculty' },
-        // { icon: Building2, label: 'Rooms', path: '/admin/rooms' },
-        // { icon: LayoutDashboard, label: 'Time Slots', path: '/admin/timeslots' }, 
-        { icon: Calendar, label: 'Timetables', path: '/admin/timetables' },
-    ];
+    const navItems = role === 'FACULTY'
+        ? [
+            { icon: Clock3, label: 'My Timetable', path: '/faculty' },
+        ]
+        : [
+            { icon: LayoutDashboard, label: 'Dashboard', path: '/admin' },
+            { icon: Building2, label: 'Departments', path: '/admin/departments' },
+            { icon: Users, label: 'Faculty', path: '/admin/faculty' },
+            { icon: NotebookTabs, label: 'Faculty Timetable', path: '/admin/faculty-timetable' },
+            { icon: Clock3, label: 'Time Slots', path: '/admin/timeslots' },
+            { icon: Calendar, label: 'Timetables', path: '/admin/timetables' },
+        ];
 
     return (
         <aside className="glass-panel" style={{
@@ -58,8 +63,7 @@ const Sidebar = () => {
                 ))}
             </nav>
 
-            {/* Logout Disabled */}
-            {/* <div style={{ paddingTop: '1rem', borderTop: '1px solid var(--border-light)' }}>
+            <div style={{ paddingTop: '1rem', borderTop: '1px solid var(--border-light)' }}>
                 <button onClick={logout} className="btn" style={{
                     width: '100%',
                     justifyContent: 'flex-start',
@@ -70,7 +74,7 @@ const Sidebar = () => {
                     <LogOut size={20} />
                     Logout
                 </button>
-            </div> */}
+            </div>
         </aside>
     );
 };

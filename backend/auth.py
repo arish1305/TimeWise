@@ -6,7 +6,8 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 from database import get_db
-from models import User
+from pydantic import BaseModel
+from models import User, Faculty, UserRole
 
 # Secret key for JWT (in production, use env var)
 import os
@@ -20,6 +21,14 @@ ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 30))
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 # Make auto_error=False to allow optional token for dev bypass
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login", auto_error=False)
+
+
+class AuthenticatedUser(BaseModel):
+    username: str
+    role: str
+    full_name: Optional[str] = None
+    user_id: Optional[int] = None
+    faculty_id: Optional[int] = None
 
 def verify_password(plain_password, hashed_password):
     return pwd_context.verify(plain_password, hashed_password)
@@ -38,27 +47,65 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     return encoded_jwt
 
 async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
-    # --- HARD BYPASS FOR DEVELOPMENT ---
-    # Always return the admin user, ignoring any token logic.
-    user = db.query(User).filter(User.username == "admin").first()
-    if user:
-        return user
-    
-    # If admin doesn't exist (should use seed.py), create a dummy obj or raise
-    # For safety, let's just return a mock object if DB is empty to avoid crashing, 
-    # but ideally seed.py runs first.
-    # Fallback to creating a dummy user in memory if DB is empty to satisfy the dependency type
-    if not user:
-         # Check if we can create one on the fly? No, better to error if DB is broken 
-         # but we claimed to user that DB is connected.
-         # Let's try to query just by role?
-         pass
-         
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
-    # If we reached here, it means 'admin' user wasn't found in DB.
-    # We should probably raise, but maybe the user deleted 'admin'?
+
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username = payload.get("sub")
+        role = payload.get("role")
+        faculty_id = payload.get("faculty_id")
+        if not username or not role:
+            raise credentials_exception
+    except jwt.PyJWTError:
+        raise credentials_exception
+
+    if role == UserRole.ADMIN:
+        user = db.query(User).filter(User.username == username).first()
+        if not user:
+            raise credentials_exception
+        return AuthenticatedUser(
+            username=user.username,
+            role=UserRole.ADMIN,
+            full_name=user.full_name,
+            user_id=user.id,
+        )
+
+    if role == UserRole.FACULTY:
+        faculty = None
+        if faculty_id is not None:
+            faculty = db.query(Faculty).filter(Faculty.id == faculty_id).first()
+        if not faculty:
+            faculty = db.query(Faculty).filter(Faculty.faculty_id_code == username).first()
+        if not faculty:
+            raise credentials_exception
+        return AuthenticatedUser(
+            username=faculty.faculty_id_code or username,
+            role=UserRole.FACULTY,
+            full_name=faculty.name,
+            faculty_id=faculty.id,
+        )
+
     raise credentials_exception
+
+
+async def require_admin(current_user: AuthenticatedUser = Depends(get_current_user)):
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
+    return current_user
+
+
+async def require_faculty(current_user: AuthenticatedUser = Depends(get_current_user)):
+    if current_user.role != UserRole.FACULTY:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Faculty access required")
+    return current_user

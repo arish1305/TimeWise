@@ -8,7 +8,7 @@ def migrate():
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         
-        # Check if column exists
+        # Check if allowed_department_ids exists
         cursor.execute("PRAGMA table_info(subjects);")
         columns = [info[1] for info in cursor.fetchall()]
         
@@ -18,7 +18,20 @@ def migrate():
             conn.commit()
             print("Migration successful.")
         else:
-            print("Column already exists.")
+            print("Column allowed_department_ids already exists.")
+            
+        # Check if created_at exists in timetables
+        cursor.execute("PRAGMA table_info(timetables);")
+        columns = [info[1] for info in cursor.fetchall()]
+        
+        if 'created_at' not in columns:
+            print("Adding created_at column to timetables table...")
+            cursor.execute("ALTER TABLE timetables ADD COLUMN created_at DATETIME;")
+            cursor.execute("UPDATE timetables SET created_at = CURRENT_TIMESTAMP WHERE created_at IS NULL;")
+            conn.commit()
+            print("Migration of created_at successful.")
+        else:
+            print("Column created_at already exists.")
             
     except Exception as e:
         print(f"Migration failed: {e}")

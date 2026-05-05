@@ -1,13 +1,299 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
+import csv
+import io
+import zipfile
+import xml.etree.ElementTree as ET
 import database, models, schemas, auth
 
 router = APIRouter(
     prefix="/admin",
     tags=["admin"],
-    dependencies=[Depends(auth.get_current_user)] # Protect all admin routes
+    dependencies=[Depends(auth.require_admin)]
 )
+
+XLSX_NS = {
+    "main": "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
+    "rel": "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+}
+
+
+def _normalize_header(value: str) -> str:
+    return value.strip().lower().replace(" ", "_")
+
+
+def _split_department_codes(value: Any) -> List[str]:
+    if value is None:
+        return []
+    text = str(value).strip()
+    if not text:
+        return []
+
+    normalized = text.replace(";", ",").replace("|", ",")
+    return [part.strip().upper() for part in normalized.split(",") if part.strip()]
+
+
+def _parse_int(value: Any, default: int) -> int:
+    text = "" if value is None else str(value).strip()
+    if not text:
+        return default
+    return int(float(text))
+
+
+def _build_faculty_from_row(row: Dict[str, Any]) -> schemas.FacultyBulkRow:
+    faculty_type = str(row.get("faculty_type") or "ASSISTANT_PROFESSOR").strip().upper()
+    faculty_id_code = str(row.get("faculty_id_code") or "").strip() or None
+
+    return schemas.FacultyBulkRow(
+        name=str(row.get("name") or "").strip(),
+        faculty_id_code=faculty_id_code,
+        faculty_type=faculty_type,
+        min_hours_per_week=_parse_int(row.get("min_hours_per_week"), 5),
+        max_hours_per_week=_parse_int(row.get("max_hours_per_week"), 18),
+        department_codes=_split_department_codes(row.get("department_codes")),
+    )
+
+
+def _create_faculty_records(rows: List[schemas.FacultyBulkRow], db: Session) -> Dict[str, Any]:
+    created_count = 0
+    errors: List[str] = []
+
+    departments = db.query(models.Department).all()
+    department_by_code = {dept.code.upper(): dept for dept in departments}
+    existing_codes = {
+        (code or "").strip().upper()
+        for (code,) in db.query(models.Faculty.faculty_id_code).all()
+        if code
+    }
+    batch_codes = set()
+
+    for index, row in enumerate(rows, start=1):
+        try:
+            with db.begin_nested():
+                if not row.name.strip():
+                    raise ValueError("name is required")
+
+                normalized_code = (row.faculty_id_code or "").strip().upper()
+                if normalized_code:
+                    if normalized_code in existing_codes or normalized_code in batch_codes:
+                        raise ValueError(f"faculty_id_code '{row.faculty_id_code}' already exists")
+                    batch_codes.add(normalized_code)
+
+                unknown_codes = [code for code in row.department_codes if code not in department_by_code]
+                if unknown_codes:
+                    raise ValueError(f"unknown department code(s): {', '.join(unknown_codes)}")
+
+                if row.min_hours_per_week < 0 or row.max_hours_per_week < 0:
+                    raise ValueError("min/max hours must be non-negative")
+                if row.min_hours_per_week > row.max_hours_per_week:
+                    raise ValueError("min_hours_per_week cannot be greater than max_hours_per_week")
+
+                db_faculty = models.Faculty(
+                    name=row.name.strip(),
+                    faculty_id_code=(row.faculty_id_code or "").strip() or None,
+                    faculty_type=row.faculty_type,
+                    min_hours_per_week=row.min_hours_per_week,
+                    max_hours_per_week=row.max_hours_per_week,
+                )
+
+                if row.department_codes:
+                    db_faculty.departments = [department_by_code[code] for code in row.department_codes]
+
+                db.add(db_faculty)
+                db.flush()
+
+            created_count += 1
+            if normalized_code:
+                existing_codes.add(normalized_code)
+        except Exception as exc:
+            errors.append(f"Row {index}: {exc}")
+
+    if created_count > 0:
+        db.commit()
+    elif errors:
+        db.rollback()
+
+    return {"created_count": created_count, "errors": errors}
+
+
+def _parse_csv_rows(file_bytes: bytes) -> List[Dict[str, Any]]:
+    text = file_bytes.decode("utf-8-sig")
+    reader = csv.DictReader(io.StringIO(text))
+    rows: List[Dict[str, Any]] = []
+    for row in reader:
+        normalized = { _normalize_header(key or ""): value for key, value in row.items() }
+        if any(str(value or "").strip() for value in normalized.values()):
+            rows.append(normalized)
+    return rows
+
+
+def _column_ref_to_index(cell_ref: str) -> int:
+    letters = "".join(ch for ch in cell_ref if ch.isalpha()).upper()
+    index = 0
+    for char in letters:
+        index = index * 26 + (ord(char) - ord("A") + 1)
+    return max(index - 1, 0)
+
+
+def _shared_strings_map(archive: zipfile.ZipFile) -> List[str]:
+    try:
+        data = archive.read("xl/sharedStrings.xml")
+    except KeyError:
+        return []
+
+    root = ET.fromstring(data)
+    strings = []
+    for si in root.findall("main:si", XLSX_NS):
+        parts = [node.text or "" for node in si.findall(".//main:t", XLSX_NS)]
+        strings.append("".join(parts))
+    return strings
+
+
+def _read_xlsx_rows(file_bytes: bytes) -> List[Dict[str, Any]]:
+    with zipfile.ZipFile(io.BytesIO(file_bytes)) as archive:
+        shared_strings = _shared_strings_map(archive)
+        sheet_data = archive.read("xl/worksheets/sheet1.xml")
+
+    root = ET.fromstring(sheet_data)
+    rows: List[List[str]] = []
+
+    for row_node in root.findall(".//main:sheetData/main:row", XLSX_NS):
+        cells: Dict[int, str] = {}
+        for cell in row_node.findall("main:c", XLSX_NS):
+            ref = cell.attrib.get("r", "")
+            idx = _column_ref_to_index(ref)
+            cell_type = cell.attrib.get("t")
+            value_node = cell.find("main:v", XLSX_NS)
+            inline_text = cell.find("main:is/main:t", XLSX_NS)
+
+            value = ""
+            if cell_type == "s" and value_node is not None and value_node.text is not None:
+                value = shared_strings[int(value_node.text)]
+            elif cell_type == "inlineStr" and inline_text is not None and inline_text.text is not None:
+                value = inline_text.text
+            elif value_node is not None and value_node.text is not None:
+                value = value_node.text
+
+            cells[idx] = value
+
+        if cells:
+            max_idx = max(cells.keys())
+            row_values = [cells.get(i, "") for i in range(max_idx + 1)]
+            rows.append(row_values)
+
+    if not rows:
+        return []
+
+    headers = [_normalize_header(value) for value in rows[0]]
+    parsed_rows: List[Dict[str, Any]] = []
+
+    for row in rows[1:]:
+        record = {
+            headers[index]: row[index] if index < len(row) else ""
+            for index in range(len(headers))
+            if headers[index]
+        }
+        if any(str(value or "").strip() for value in record.values()):
+            parsed_rows.append(record)
+
+    return parsed_rows
+
+
+def _xlsx_escape(value: str) -> str:
+    return (
+        value.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+    )
+
+
+def _build_template_xlsx() -> bytes:
+    headers = [
+        "name",
+        "faculty_id_code",
+        "faculty_type",
+        "min_hours_per_week",
+        "max_hours_per_week",
+        "department_codes",
+    ]
+    sample_rows = [
+        ["Dr. Jane Doe", "FAC001", "ASSISTANT_PROFESSOR", "5", "18", "CSE"],
+        ["Prof. Arun Kumar", "FAC002", "PROFESSOR", "8", "16", "CSE,ECE"],
+    ]
+    all_rows = [headers] + sample_rows
+    shared_strings: List[str] = []
+    string_index: Dict[str, int] = {}
+
+    def string_id(value: str) -> int:
+        if value not in string_index:
+            string_index[value] = len(shared_strings)
+            shared_strings.append(value)
+        return string_index[value]
+
+    sheet_rows = []
+    for row_idx, row in enumerate(all_rows, start=1):
+        cells = []
+        for col_idx, value in enumerate(row, start=1):
+            col_name = ""
+            current = col_idx
+            while current > 0:
+                current, remainder = divmod(current - 1, 26)
+                col_name = chr(65 + remainder) + col_name
+            shared_id = string_id(value)
+            cells.append(f'<c r="{col_name}{row_idx}" t="s"><v>{shared_id}</v></c>')
+        sheet_rows.append(f'<row r="{row_idx}">{"".join(cells)}</row>')
+
+    shared_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        f'<sst xmlns="{XLSX_NS["main"]}" count="{len(shared_strings)}" uniqueCount="{len(shared_strings)}">'
+        + "".join(f"<si><t>{_xlsx_escape(value)}</t></si>" for value in shared_strings)
+        + "</sst>"
+    )
+    sheet_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        f'<worksheet xmlns="{XLSX_NS["main"]}">'
+        "<sheetData>"
+        + "".join(sheet_rows)
+        + "</sheetData></worksheet>"
+    )
+
+    content_types = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+  <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+  <Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/>
+</Types>"""
+    root_rels = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>"""
+    workbook_xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+ xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets>
+    <sheet name="Faculty Template" sheetId="1" r:id="rId1"/>
+  </sheets>
+</workbook>"""
+    workbook_rels = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"/>
+</Relationships>"""
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("[Content_Types].xml", content_types)
+        archive.writestr("_rels/.rels", root_rels)
+        archive.writestr("xl/workbook.xml", workbook_xml)
+        archive.writestr("xl/_rels/workbook.xml.rels", workbook_rels)
+        archive.writestr("xl/worksheets/sheet1.xml", sheet_xml)
+        archive.writestr("xl/sharedStrings.xml", shared_xml)
+    return buffer.getvalue()
 
 # --- Departments ---
 @router.post("/departments", response_model=schemas.Department)
@@ -117,18 +403,7 @@ def delete_section(section_id: int, db: Session = Depends(database.get_db)):
     db.commit()
     return {"message": "Section deleted"}
 
-# --- Rooms ---
-@router.post("/rooms", response_model=schemas.Room)
-def create_room(room: schemas.RoomCreate, db: Session = Depends(database.get_db)):
-    db_room = models.Room(**room.dict())
-    db.add(db_room)
-    db.commit()
-    db.refresh(db_room)
-    return db_room
 
-@router.get("/rooms", response_model=List[schemas.Room])
-def read_rooms(skip: int = 0, limit: int = 100, db: Session = Depends(database.get_db)):
-    return db.query(models.Room).offset(skip).limit(limit).all()
 
 # --- Subjects ---
 @router.post("/subjects", response_model=schemas.Subject)
@@ -217,9 +492,55 @@ def create_faculty(faculty: schemas.FacultyCreate, db: Session = Depends(databas
     db.refresh(db_faculty)
     return db_faculty
 
+@router.get("/faculty/template")
+def download_faculty_template():
+    template_bytes = _build_template_xlsx()
+    headers = {
+        "Content-Disposition": 'attachment; filename="faculty_bulk_template.xlsx"'
+    }
+    return StreamingResponse(
+        io.BytesIO(template_bytes),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=headers,
+    )
+
 @router.get("/faculty", response_model=List[schemas.Faculty])
 def read_faculty(skip: int = 0, limit: int = 100, db: Session = Depends(database.get_db)):
     return db.query(models.Faculty).offset(skip).limit(limit).all()
+
+@router.post("/faculty/bulk", response_model=schemas.FacultyBulkResult)
+def create_faculty_bulk(payload: schemas.FacultyBulkCreate, db: Session = Depends(database.get_db)):
+    if not payload.rows:
+        raise HTTPException(status_code=400, detail="At least one faculty row is required")
+    return _create_faculty_records(payload.rows, db)
+
+@router.post("/faculty/bulk-upload", response_model=schemas.FacultyBulkResult)
+async def upload_faculty_bulk(file: UploadFile = File(...), db: Session = Depends(database.get_db)):
+    filename = file.filename or ""
+    extension = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    file_bytes = await file.read()
+
+    if not file_bytes:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
+
+    try:
+        if extension == "csv":
+            raw_rows = _parse_csv_rows(file_bytes)
+        elif extension == "xlsx":
+            raw_rows = _read_xlsx_rows(file_bytes)
+        else:
+            raise HTTPException(status_code=400, detail="Only .csv and .xlsx files are supported")
+
+        rows = [_build_faculty_from_row(row) for row in raw_rows]
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Failed to read file: {exc}")
+
+    if not rows:
+        raise HTTPException(status_code=400, detail="No faculty rows found in the uploaded file")
+
+    return _create_faculty_records(rows, db)
 
 @router.put("/faculty/{faculty_id}", response_model=schemas.Faculty)
 def update_faculty(faculty_id: int, faculty: schemas.FacultyCreate, db: Session = Depends(database.get_db)):

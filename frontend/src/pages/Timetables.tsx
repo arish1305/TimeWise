@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
-import { RefreshCw, Calendar, ChevronDown, Users, Filter, X, Check, Trash2 } from 'lucide-react';
+import { RefreshCw, Calendar, ChevronDown, Users, Filter, X, Check, Trash2, Download } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import api from '../api/axios';
 import '../styles/Timetables.css';
+import { downloadAllTimetablesPdf } from '../utils/pdfExport';
 
 const Timetables = () => {
     // Data State
@@ -121,6 +122,7 @@ const Timetables = () => {
     // All Timetables State
     const [allTimetables, setAllTimetables] = useState<any[]>([]);
     const [showAllTimetables, setShowAllTimetables] = useState(false);
+    const [exportingTimetables, setExportingTimetables] = useState(false);
 
     const generateAllTimetables = async () => {
         if (!window.confirm("This will generate timetables for ALL sections. Existing timetables will be replaced. Continue?")) {
@@ -180,6 +182,34 @@ const Timetables = () => {
         } catch (err) {
             console.error("Failed to load timetable", err);
             setError("Failed to load timetable");
+        }
+    };
+
+    const downloadGeneratedTimetablesPdf = async () => {
+        setExportingTimetables(true);
+        setError(null);
+
+        try {
+            const listRes = await api.get('/timetables/', { params: { limit: 1000 } });
+            const timetables = listRes.data || [];
+
+            if (!timetables.length) {
+                setError('No generated timetables found to download.');
+                return;
+            }
+
+            const detailResponses = await Promise.all(
+                timetables.map((tt: any) => api.get(`/timetables/${tt.id}`))
+            );
+            await downloadAllTimetablesPdf(
+                detailResponses.map((res) => res.data),
+                timeSlots
+            );
+        } catch (err: any) {
+            console.error('Failed to export timetables', err);
+            setError(err.message || err.response?.data?.detail || 'Failed to download timetable PDF.');
+        } finally {
+            setExportingTimetables(false);
         }
     };
 
@@ -498,6 +528,16 @@ const Timetables = () => {
                         >
                             <Filter size={18} />
                             View History
+                        </button>
+
+                        <button
+                            className="btn btn-outline"
+                            onClick={downloadGeneratedTimetablesPdf}
+                            disabled={exportingTimetables}
+                            style={{ background: 'white' }}
+                        >
+                            {exportingTimetables ? <RefreshCw className="animate-spin" size={18} /> : <Download size={18} />}
+                            {exportingTimetables ? 'Preparing PDF...' : 'Download All Timetables PDF'}
                         </button>
                         
                         <button

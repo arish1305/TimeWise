@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Calendar, Search, Users } from 'lucide-react';
+import { Calendar, Download, RefreshCw, Search, Users } from 'lucide-react';
 import api from '../api/axios';
+import { downloadAllFacultyTimetablesZip, downloadFacultyTimetablePdf } from '../utils/pdfExport';
 
 interface FacultyOption {
     id: number;
@@ -44,6 +45,8 @@ const AdminFacultyTimetable = () => {
     const [facultyName, setFacultyName] = useState('');
     const [data, setData] = useState<FacultyTimetableResponse | null>(null);
     const [loading, setLoading] = useState(false);
+    const [exportingSelected, setExportingSelected] = useState(false);
+    const [exportingAll, setExportingAll] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
@@ -93,6 +96,52 @@ const AdminFacultyTimetable = () => {
             setError(err.response?.data?.detail || 'Failed to load faculty timetable.');
         } finally {
             setLoading(false);
+        }
+    };
+
+    const downloadSelectedFacultyPdf = async () => {
+        if (!data) {
+            setError('Search and open a faculty timetable before downloading it.');
+            return;
+        }
+
+        setExportingSelected(true);
+        try {
+            await downloadFacultyTimetablePdf(data);
+        } catch (err: any) {
+            console.error('Failed to export faculty timetable', err);
+            setError(err.message || 'Failed to download faculty timetable PDF.');
+        } finally {
+            setExportingSelected(false);
+        }
+    };
+
+    const downloadAllFacultyPdfs = async () => {
+        setExportingAll(true);
+        setError(null);
+
+        try {
+            const facultySource = facultyList.length
+                ? facultyList
+                : (await api.get('/admin/faculty')).data;
+
+            if (!facultySource.length) {
+                setError('No faculty records found to download.');
+                return;
+            }
+
+            const responses = await Promise.all(
+                facultySource.map((faculty: FacultyOption) =>
+                    api.get('/timetables/faculty', { params: { faculty_id: faculty.id } })
+                )
+            );
+
+            await downloadAllFacultyTimetablesZip(responses.map((res) => res.data));
+        } catch (err: any) {
+            console.error('Failed to export all faculty timetables', err);
+            setError(err.message || err.response?.data?.detail || 'Failed to download faculty timetable PDFs.');
+        } finally {
+            setExportingAll(false);
         }
     };
 
@@ -159,6 +208,10 @@ const AdminFacultyTimetable = () => {
                     <button className="btn btn-primary" onClick={searchTimetable} disabled={loading}>
                         <Search size={18} /> {loading ? 'Searching...' : 'View Timetable'}
                     </button>
+                    <button className="btn btn-outline" onClick={downloadAllFacultyPdfs} disabled={exportingAll} style={{ background: 'white' }}>
+                        {exportingAll ? <RefreshCw className="animate-spin" size={18} /> : <Download size={18} />}
+                        {exportingAll ? 'Preparing ZIP...' : 'Download All Faculty PDFs'}
+                    </button>
                 </div>
             </div>
 
@@ -189,6 +242,10 @@ const AdminFacultyTimetable = () => {
                                 </div>
                             </div>
                         </div>
+                        <button className="btn btn-outline" onClick={downloadSelectedFacultyPdf} disabled={exportingSelected} style={{ background: 'white', minHeight: '64px', justifyContent: 'center' }}>
+                            {exportingSelected ? <RefreshCw className="animate-spin" size={18} /> : <Download size={18} />}
+                            {exportingSelected ? 'Preparing PDF...' : 'Download This Faculty'}
+                        </button>
                     </div>
 
                     {entries.length === 0 ? (

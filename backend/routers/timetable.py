@@ -13,7 +13,7 @@ router = APIRouter(
     tags=["timetables"]
 )
 
-COMMITMENT_STATUSES = ("ACTIVE", "APPROVED")
+COMMITMENT_STATUSES = ("DRAFT", "ACTIVE", "APPROVED")
 DAY_ORDER = {
     "Monday": 1,
     "Tuesday": 2,

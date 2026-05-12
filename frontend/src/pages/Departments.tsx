@@ -6,13 +6,12 @@ import { motion, AnimatePresence } from 'framer-motion';
 // Types
 interface Section { id: number; name: string; student_count: number; academic_year_id: number; }
 interface AcademicYear { id: number; name: string; level: number; department_id: number; sections?: Section[]; }
-interface TimeSlot { id: number; day: string; start_time: string; end_time: string; label?: string; }
-interface Subject { id: number; name: string; code: string; semester: number; weekly_hours: number; department_id: number; manual_timeslot_ids?: number[]; is_elective: boolean; elective_group_id?: string; allowed_department_ids?: number[]; }
+interface TimeSlot { id: number; department_id?: number | null; day: string; start_time: string; end_time: string; is_break?: boolean; label?: string; }
+interface Subject { id: number; name: string; code: string; semester: number; weekly_hours: number; continuous_hours?: number; department_id: number; manual_timeslot_ids?: number[]; is_elective: boolean; elective_group_id?: string; allowed_department_ids?: number[]; }
 interface Department { id: number; name: string; code: string; years?: AcademicYear[]; subjects?: Subject[]; }
 
 const Departments = () => {
     const [departments, setDepartments] = useState<Department[]>([]);
-    const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([]);
 
     // UI State
     const [expandedDept, setExpandedDept] = useState<number | null>(null);
@@ -33,11 +32,31 @@ const Departments = () => {
 
     const [showSubjectForm, setShowSubjectForm] = useState<number | null>(null); // deptId
     const [editingSubjectId, setEditingSubjectId] = useState<number | null>(null);
-    const [newSubject, setNewSubject] = useState({ name: '', code: '', semester: 1, weekly_hours: 3, manual_timeslot_ids: [] as number[], is_elective: false, elective_group_id: '', allowed_department_ids: [] as number[] });
+    const [newSubject, setNewSubject] = useState({ name: '', code: '', semester: 1, weekly_hours: 3, continuous_hours: 1, manual_timeslot_ids: [] as number[], is_elective: false, elective_group_id: '', allowed_department_ids: [] as number[] });
+    const [departmentSlots, setDepartmentSlots] = useState<Record<number, TimeSlot[]>>({});
+    const [buildingScheduleDept, setBuildingScheduleDept] = useState<number | null>(null);
+    const [scheduleForms, setScheduleForms] = useState<Record<number, {
+        days: string[];
+        start_time: string;
+        end_time: string;
+        break_start: string;
+        break_end: string;
+        lunch_start: string;
+        lunch_end: string;
+    }>>({});
+    const workingDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const defaultScheduleForm = {
+        days: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
+        start_time: '09:00',
+        end_time: '15:15',
+        break_start: '11:00',
+        break_end: '11:15',
+        lunch_start: '11:15',
+        lunch_end: '12:15',
+    };
 
     useEffect(() => {
         fetchDepartments();
-        fetchTimeSlots();
     }, []);
 
     const fetchDepartments = async () => {
@@ -47,16 +66,6 @@ const Departments = () => {
         } catch (err) {
             console.error(err);
             // alert("Failed to fetch departments. Check backend connection.");
-        }
-    };
-
-    const fetchTimeSlots = async () => {
-        try {
-            const res = await api.get('/admin/timeslots');
-            // Allow manual timing only for non-break slots
-            setTimeSlots(res.data.filter((t: any) => !t.is_break));
-        } catch (err) {
-            console.error("Failed to fetch timeslots", err);
         }
     };
 
@@ -92,6 +101,41 @@ const Departments = () => {
             setExpandedDept(id);
             fetchYears(id);
             fetchSubjects(id);
+            fetchDepartmentSlots(id);
+            setScheduleForms(prev => ({ ...prev, [id]: prev[id] || defaultScheduleForm }));
+        }
+    };
+
+    const fetchDepartmentSlots = async (deptId: number) => {
+        try {
+            const res = await api.get('/admin/timeslots', { params: { department_id: deptId } });
+            setDepartmentSlots(prev => ({ ...prev, [deptId]: res.data }));
+        } catch (err) {
+            console.error("Failed to fetch department slots", err);
+        }
+    };
+
+    const buildDepartmentSchedule = async (deptId: number) => {
+        const form = scheduleForms[deptId] || defaultScheduleForm;
+        setBuildingScheduleDept(deptId);
+        try {
+            const payload = {
+                ...form,
+                start_time: `${form.start_time}:00`,
+                end_time: `${form.end_time}:00`,
+                break_start: `${form.break_start}:00`,
+                break_end: `${form.break_end}:00`,
+                lunch_start: `${form.lunch_start}:00`,
+                lunch_end: `${form.lunch_end}:00`,
+            };
+            const res = await api.post(`/admin/departments/${deptId}/schedule/build`, payload);
+            setDepartmentSlots(prev => ({ ...prev, [deptId]: res.data }));
+            alert("Department schedule created successfully.");
+        } catch (err: any) {
+            console.error(err);
+            alert(`Failed to build schedule: ${err.response?.data?.detail || err.message}`);
+        } finally {
+            setBuildingScheduleDept(null);
         }
     };
 
@@ -209,10 +253,14 @@ const Departments = () => {
 
     const saveSubject = async (deptId: number) => {
         try {
+            const validManualSlotIds = new Set(
+                (departmentSlots[deptId] || []).filter(slot => !slot.is_break).map(slot => slot.id)
+            );
             const payload = {
                 ...newSubject,
                 department_id: deptId,
-                manual_timeslot_ids: newSubject.manual_timeslot_ids,
+                continuous_hours: Math.min(Math.max(newSubject.continuous_hours || 1, 1), newSubject.weekly_hours || 1),
+                manual_timeslot_ids: newSubject.manual_timeslot_ids.filter(id => validManualSlotIds.has(id)),
                 allowed_department_ids: newSubject.allowed_department_ids
             };
             if (editingSubjectId) {
@@ -235,6 +283,7 @@ const Departments = () => {
             code: sub.code,
             semester: sub.semester,
             weekly_hours: sub.weekly_hours,
+            continuous_hours: sub.continuous_hours || 1,
             manual_timeslot_ids: sub.manual_timeslot_ids || [],
             is_elective: sub.is_elective || false,
             elective_group_id: sub.elective_group_id || '',
@@ -325,6 +374,87 @@ const Departments = () => {
                                     style={{ overflow: 'hidden', borderTop: '1px solid var(--border-light)' }}
                                 >
                                     <div style={{ padding: '1.5rem', background: '#f8fafc' }}>
+                                        {/* --- Department Schedule Builder --- */}
+                                        <div style={{ marginBottom: '2rem', background: 'white', border: '1px solid #e2e8f0', borderRadius: 8, padding: '1rem' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: '1rem' }}>
+                                                <div>
+                                                    <h4 style={{ margin: 0, color: 'var(--primary-700)', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                                        <Layers size={18} /> Department Day Schedule
+                                                    </h4>
+                                                    <p style={{ margin: '0.25rem 0 0', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                                                        Set only break and lunch. One-hour class slots are created automatically for this department.
+                                                    </p>
+                                                </div>
+                                                <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                                                    {(departmentSlots[dept.id] || []).length} slots configured
+                                                </div>
+                                            </div>
+
+                                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '0.75rem', alignItems: 'end' }}>
+                                                <div style={{ gridColumn: '1 / -1' }}>
+                                                    <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>Working Days</label>
+                                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                                                        {workingDays.map(day => {
+                                                            const form = scheduleForms[dept.id] || defaultScheduleForm;
+                                                            const selected = form.days.includes(day);
+                                                            return (
+                                                                <button
+                                                                    key={day}
+                                                                    type="button"
+                                                                    className="btn"
+                                                                    onClick={() => {
+                                                                        const nextDays = selected ? form.days.filter(d => d !== day) : [...form.days, day];
+                                                                        setScheduleForms(prev => ({ ...prev, [dept.id]: { ...form, days: nextDays } }));
+                                                                    }}
+                                                                    style={{
+                                                                        padding: '0.3rem 0.65rem',
+                                                                        fontSize: '0.78rem',
+                                                                        background: selected ? 'var(--primary-500)' : '#f1f5f9',
+                                                                        color: selected ? 'white' : 'var(--text-secondary)',
+                                                                        borderColor: selected ? 'var(--primary-600)' : '#cbd5e1'
+                                                                    }}
+                                                                >
+                                                                    {day.substring(0, 3)}
+                                                                </button>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                </div>
+
+                                                {[
+                                                    ['start_time', 'College Starts'],
+                                                    ['end_time', 'College Ends'],
+                                                    ['break_start', 'Break Starts'],
+                                                    ['break_end', 'Break Ends'],
+                                                    ['lunch_start', 'Lunch Starts'],
+                                                    ['lunch_end', 'Lunch Ends'],
+                                                ].map(([key, label]) => {
+                                                    const form = scheduleForms[dept.id] || defaultScheduleForm;
+                                                    return (
+                                                        <div key={key}>
+                                                            <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>{label}</label>
+                                                            <input
+                                                                type="time"
+                                                                className="input-field"
+                                                                value={(form as any)[key]}
+                                                                onChange={e => setScheduleForms(prev => ({ ...prev, [dept.id]: { ...form, [key]: e.target.value } }))}
+                                                                style={{ width: '100%' }}
+                                                            />
+                                                        </div>
+                                                    );
+                                                })}
+
+                                                <button
+                                                    className="btn btn-primary"
+                                                    onClick={() => buildDepartmentSchedule(dept.id)}
+                                                    disabled={buildingScheduleDept === dept.id}
+                                                    style={{ minHeight: 42 }}
+                                                >
+                                                    {buildingScheduleDept === dept.id ? 'Building...' : 'Build Slots'}
+                                                </button>
+                                            </div>
+                                        </div>
+
                                         {/* --- Subjects Section --- */}
                                         <div style={{ marginBottom: '2rem' }}>
                                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem', borderBottom: '1px solid #e2e8f0', paddingBottom: '0.5rem' }}>
@@ -333,7 +463,7 @@ const Departments = () => {
                                                 </h4>
                                                 <button className="btn" style={{ fontSize: '0.8rem', padding: '0.2rem 0.6rem' }} onClick={() => {
                                                     setEditingSubjectId(null);
-                                                    setNewSubject({ name: '', code: '', semester: 1, weekly_hours: 3, manual_timeslot_ids: [], is_elective: false, elective_group_id: '', allowed_department_ids: [] });
+                                                    setNewSubject({ name: '', code: '', semester: 1, weekly_hours: 3, continuous_hours: 1, manual_timeslot_ids: [], is_elective: false, elective_group_id: '', allowed_department_ids: [] });
                                                     setShowSubjectForm(dept.id);
                                                 }}>
                                                     <Plus size={16} /> Add Subject
@@ -345,7 +475,32 @@ const Departments = () => {
                                                     <input className="input-field" placeholder="Subject Name" value={newSubject.name} onChange={e => setNewSubject({ ...newSubject, name: e.target.value })} style={{ flex: 1, minWidth: 150 }} />
                                                     <input className="input-field" placeholder="Code (CS101)" value={newSubject.code} onChange={e => setNewSubject({ ...newSubject, code: e.target.value })} style={{ width: 100 }} />
                                                     <input type="number" className="input-field" placeholder="Sem" value={isNaN(newSubject.semester) ? '' : newSubject.semester} onChange={e => setNewSubject({ ...newSubject, semester: parseInt(e.target.value) })} style={{ width: 60 }} />
-                                                    <input type="number" className="input-field" placeholder="Hrs/Wk" value={isNaN(newSubject.weekly_hours) ? '' : newSubject.weekly_hours} onChange={e => setNewSubject({ ...newSubject, weekly_hours: parseInt(e.target.value) })} style={{ width: 80 }} />
+                                                    <input type="number" className="input-field" placeholder="Hrs/Wk" value={isNaN(newSubject.weekly_hours) ? '' : newSubject.weekly_hours} onChange={e => {
+                                                        const weeklyHours = parseInt(e.target.value);
+                                                        setNewSubject({
+                                                            ...newSubject,
+                                                            weekly_hours: weeklyHours,
+                                                            continuous_hours: Math.min(newSubject.continuous_hours || 1, weeklyHours || 1)
+                                                        });
+                                                    }} style={{ width: 80 }} />
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                                        <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Back-to-back</label>
+                                                        <input
+                                                            type="number"
+                                                            className="input-field"
+                                                            min="1"
+                                                            max={Math.max(newSubject.weekly_hours || 1, 1)}
+                                                            value={isNaN(newSubject.continuous_hours) ? '' : newSubject.continuous_hours}
+                                                            onChange={e => {
+                                                                const value = parseInt(e.target.value);
+                                                                setNewSubject({
+                                                                    ...newSubject,
+                                                                    continuous_hours: Math.min(Math.max(value || 1, 1), newSubject.weekly_hours || 1)
+                                                                });
+                                                            }}
+                                                            style={{ width: 74 }}
+                                                        />
+                                                    </div>
                                                     
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginLeft: '0.5rem' }}>
                                                         <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.9rem' }}>
@@ -359,29 +514,35 @@ const Departments = () => {
                                                     <div style={{ display: 'flex', flexDirection: 'column', width: '100%', marginTop: '0.5rem' }}>
                                                         <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '4px' }}>Manual Timeslots (Optional)</label>
                                                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', maxHeight: '120px', overflowY: 'auto', border: '1px solid #e2e8f0', padding: '0.5rem', borderRadius: '4px' }}>
-                                                            {timeSlots.map(t => {
-                                                                const isSelected = newSubject.manual_timeslot_ids.includes(t.id);
-                                                                return (
-                                                                    <div
-                                                                        key={t.id}
-                                                                        onClick={() => {
-                                                                            if (isSelected) {
-                                                                                setNewSubject({ ...newSubject, manual_timeslot_ids: newSubject.manual_timeslot_ids.filter(id => id !== t.id) });
-                                                                            } else {
-                                                                                setNewSubject({ ...newSubject, manual_timeslot_ids: [...newSubject.manual_timeslot_ids, t.id] });
-                                                                            }
-                                                                        }}
-                                                                        style={{
-                                                                            fontSize: '0.75rem', padding: '3px 8px', borderRadius: '12px', cursor: 'pointer',
-                                                                            background: isSelected ? 'var(--primary-500)' : '#f1f5f9',
-                                                                            color: isSelected ? 'white' : 'inherit',
-                                                                            border: isSelected ? '1px solid var(--primary-600)' : '1px solid #cbd5e1'
-                                                                        }}
-                                                                    >
-                                                                        {t.day.substring(0, 3)} {t.start_time.substring(0, 5)}
-                                                                    </div>
-                                                                )
-                                                            })}
+                                                            {(departmentSlots[dept.id] || []).filter(t => !t.is_break).length === 0 ? (
+                                                                <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem', fontStyle: 'italic' }}>
+                                                                    Build the Department Day Schedule first to choose manual class slots.
+                                                                </div>
+                                                            ) : (
+                                                                (departmentSlots[dept.id] || []).filter(t => !t.is_break).map(t => {
+                                                                    const isSelected = newSubject.manual_timeslot_ids.includes(t.id);
+                                                                    return (
+                                                                        <div
+                                                                            key={t.id}
+                                                                            onClick={() => {
+                                                                                if (isSelected) {
+                                                                                    setNewSubject({ ...newSubject, manual_timeslot_ids: newSubject.manual_timeslot_ids.filter(id => id !== t.id) });
+                                                                                } else {
+                                                                                    setNewSubject({ ...newSubject, manual_timeslot_ids: [...newSubject.manual_timeslot_ids, t.id] });
+                                                                                }
+                                                                            }}
+                                                                            style={{
+                                                                                fontSize: '0.75rem', padding: '3px 8px', borderRadius: '12px', cursor: 'pointer',
+                                                                                background: isSelected ? 'var(--primary-500)' : '#f1f5f9',
+                                                                                color: isSelected ? 'white' : 'inherit',
+                                                                                border: isSelected ? '1px solid var(--primary-600)' : '1px solid #cbd5e1'
+                                                                            }}
+                                                                        >
+                                                                            {t.day.substring(0, 3)} {t.start_time.substring(0, 5)}
+                                                                        </div>
+                                                                    )
+                                                                })
+                                                            )}
                                                         </div>
                                                     </div>
                                                     
@@ -433,6 +594,13 @@ const Departments = () => {
                                                             </div>
                                                             <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>
                                                                 Semester {sub.semester} • {sub.weekly_hours} hrs/week
+                                                                {(sub.continuous_hours || 1) > 1 && (
+                                                                    <div style={{ display: 'inline-flex', marginLeft: '0.5rem' }}>
+                                                                        <span style={{ fontSize: '0.7rem', background: 'var(--success-light)', color: 'var(--success-color)', padding: '1px 6px', borderRadius: '10px', fontWeight: 600 }}>
+                                                                            {sub.continuous_hours} back-to-back
+                                                                        </span>
+                                                                    </div>
+                                                                )}
                                                                 {sub.is_elective && (
                                                                     <div style={{ display: 'inline-flex', marginLeft: '0.5rem' }}>
                                                                         <span style={{ fontSize: '0.7rem', background: 'var(--primary-100)', color: 'var(--primary-700)', padding: '1px 6px', borderRadius: '10px', fontWeight: 600 }}>

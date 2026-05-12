@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Calendar, Clock3, GraduationCap } from 'lucide-react';
 import api from '../api/axios';
+import AppLogo from '../components/AppLogo';
 
 interface FacultyTimetableEntry {
     timetable_id: number;
@@ -83,11 +84,14 @@ const FacultyTimetable = () => {
 
     return (
         <div className="animate-fade-in">
-            <div style={{ marginBottom: '2rem' }}>
-                <h1 style={{ fontSize: '2rem', fontWeight: 800, marginBottom: '0.35rem' }}>My Timetable</h1>
-                <p style={{ color: 'var(--text-muted)', margin: 0 }}>
-                    {data?.faculty_name} {data?.faculty_id_code ? `(${data.faculty_id_code})` : ''}
-                </p>
+            <div style={{ marginBottom: '2rem', display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                <AppLogo size={52} />
+                <div>
+                    <h1 style={{ fontSize: '2rem', fontWeight: 800, marginBottom: '0.35rem' }}>My Timetable</h1>
+                    <p style={{ color: 'var(--text-muted)', margin: 0 }}>
+                        {data?.faculty_name} {data?.faculty_id_code ? `(${data.faculty_id_code})` : ''}
+                    </p>
+                </div>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>

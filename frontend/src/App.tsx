@@ -5,7 +5,6 @@ import Login from './pages/Login';
 import AdminDashboard from './pages/AdminDashboard';
 import Departments from './pages/Departments';
 import Faculty from './pages/Faculty';
-import TimeSlots from './pages/TimeSlots';
 import Timetables from './pages/Timetables';
 import FacultyTimetable from './pages/FacultyTimetable';
 import AdminFacultyTimetable from './pages/AdminFacultyTimetable';
@@ -59,7 +58,6 @@ function App() {
             <Route path="departments" element={<Departments />} />
             <Route path="faculty" element={<Faculty />} />
             <Route path="faculty-timetable" element={<AdminFacultyTimetable />} />
-            <Route path="timeslots" element={<TimeSlots />} />
             <Route path="timetables" element={<Timetables />} />
           </Route>
 

@@ -1,11 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from typing import List, Optional, Dict, Any
 import csv
 import io
 import zipfile
 import xml.etree.ElementTree as ET
+from datetime import datetime, timedelta, time
 import database, models, schemas, auth
 
 router = APIRouter(
@@ -413,9 +415,20 @@ def create_subject(subject: schemas.SubjectCreate, db: Session = Depends(databas
     if not dept:
         raise HTTPException(status_code=404, detail="Primary Department not found")
 
+    existing_subject = db.query(models.Subject).filter(
+        models.Subject.department_id == subject.department_id,
+        models.Subject.code == subject.code,
+    ).first()
+    if existing_subject:
+        raise HTTPException(status_code=400, detail="Subject code already exists in this department")
+
     db_subject = models.Subject(**subject.dict())
     db.add(db_subject)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Subject code already exists in this department")
     db.refresh(db_subject)
     return db_subject
 
@@ -431,6 +444,14 @@ def update_subject(subject_id: int, subject: schemas.SubjectCreate, db: Session 
     db_subject = db.query(models.Subject).filter(models.Subject.id == subject_id).first()
     if not db_subject:
          raise HTTPException(status_code=404, detail="Subject not found")
+
+    existing_subject = db.query(models.Subject).filter(
+        models.Subject.department_id == subject.department_id,
+        models.Subject.code == subject.code,
+        models.Subject.id != subject_id,
+    ).first()
+    if existing_subject:
+        raise HTTPException(status_code=400, detail="Subject code already exists in this department")
     
     db_subject.name = subject.name
     db_subject.code = subject.code
@@ -444,7 +465,11 @@ def update_subject(subject_id: int, subject: schemas.SubjectCreate, db: Session 
     db_subject.elective_group_id = subject.elective_group_id
     db_subject.allowed_department_ids = subject.allowed_department_ids
     
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Subject code already exists in this department")
     db.refresh(db_subject)
     return db_subject
 
@@ -619,6 +644,101 @@ def assign_faculty_subjects(faculty_id: int, assignments: List[schemas.FacultySu
     return db.query(models.FacultySubjectAssignment).filter(models.FacultySubjectAssignment.faculty_id == faculty_id).all()
 
 # --- TimeSlots ---
+
+def _time_to_minutes(value: time) -> int:
+    return value.hour * 60 + value.minute
+
+
+def _minutes_to_time(value: int) -> time:
+    return (datetime.min + timedelta(minutes=value)).time()
+
+
+def _department_timeslot_query(db: Session, department_id: Optional[int]):
+    q = db.query(models.TimeSlot)
+    if department_id is not None:
+        return q.filter(models.TimeSlot.department_id == department_id)
+    return q
+
+
+@router.post("/departments/{department_id}/schedule/build", response_model=List[schemas.TimeSlot])
+def build_department_schedule(
+    department_id: int,
+    schedule: schemas.DepartmentScheduleBuildRequest,
+    db: Session = Depends(database.get_db),
+):
+    department = db.query(models.Department).filter(models.Department.id == department_id).first()
+    if not department:
+        raise HTTPException(status_code=404, detail="Department not found")
+
+    existing_slot_ids = [slot.id for slot in db.query(models.TimeSlot.id).filter(models.TimeSlot.department_id == department_id).all()]
+    if existing_slot_ids:
+        entry_count = db.query(models.TimetableEntry).filter(
+            models.TimetableEntry.timeslot_id.in_(existing_slot_ids)
+        ).count()
+        if entry_count:
+            raise HTTPException(
+                status_code=400,
+                detail="Clear generated timetables for this department before rebuilding its schedule",
+            )
+
+    start = _time_to_minutes(schedule.start_time)
+    end = _time_to_minutes(schedule.end_time)
+    break_start = _time_to_minutes(schedule.break_start)
+    break_end = _time_to_minutes(schedule.break_end)
+    lunch_start = _time_to_minutes(schedule.lunch_start)
+    lunch_end = _time_to_minutes(schedule.lunch_end)
+
+    special_blocks = sorted([
+        (break_start, break_end, "Break"),
+        (lunch_start, lunch_end, "Lunch"),
+    ])
+
+    if not schedule.days:
+        raise HTTPException(status_code=400, detail="Select at least one working day")
+    if not (start < break_start < break_end <= lunch_start < lunch_end < end):
+        raise HTTPException(status_code=400, detail="Use valid start/end, break, and lunch times in order")
+
+    db.query(models.TimeSlot).filter(models.TimeSlot.department_id == department_id).delete(synchronize_session=False)
+
+    new_slots = []
+    for day in schedule.days:
+        cursor = start
+        while cursor < end:
+            block = next((item for item in special_blocks if item[0] == cursor), None)
+            if block:
+                block_start, block_end, label = block
+                new_slots.append(models.TimeSlot(
+                    department_id=department_id,
+                    day=day,
+                    start_time=_minutes_to_time(block_start),
+                    end_time=_minutes_to_time(block_end),
+                    is_break=True,
+                    label=label,
+                ))
+                cursor = block_end
+                continue
+
+            next_special_start = min([item[0] for item in special_blocks if item[0] > cursor] + [end])
+            class_end = min(cursor + 60, next_special_start, end)
+            if class_end - cursor == 60:
+                new_slots.append(models.TimeSlot(
+                    department_id=department_id,
+                    day=day,
+                    start_time=_minutes_to_time(cursor),
+                    end_time=_minutes_to_time(class_end),
+                    is_break=False,
+                    label="Class",
+                ))
+            cursor = class_end if class_end > cursor else cursor + 60
+
+    db.add_all(new_slots)
+    db.commit()
+    return db.query(models.TimeSlot).filter(models.TimeSlot.department_id == department_id).order_by(
+        models.TimeSlot.day,
+        models.TimeSlot.start_time,
+    ).all()
+
+
 @router.post("/timeslots", response_model=schemas.TimeSlot)
 def create_timeslot(timeslot: schemas.TimeSlotCreate, db: Session = Depends(database.get_db)):
     db_timeslot = models.TimeSlot(**timeslot.dict())
@@ -628,8 +748,8 @@ def create_timeslot(timeslot: schemas.TimeSlotCreate, db: Session = Depends(data
     return db_timeslot
 
 @router.get("/timeslots", response_model=List[schemas.TimeSlot])
-def read_timeslots(skip: int = 0, limit: int = 100, db: Session = Depends(database.get_db)):
-    return db.query(models.TimeSlot).offset(skip).limit(limit).all()
+def read_timeslots(department_id: Optional[int] = None, skip: int = 0, limit: int = 100, db: Session = Depends(database.get_db)):
+    return _department_timeslot_query(db, department_id).offset(skip).limit(limit).all()
 
 @router.put("/timeslots/{timeslot_id}", response_model=schemas.TimeSlot)
 def update_timeslot(timeslot_id: int, timeslot: schemas.TimeSlotCreate, db: Session = Depends(database.get_db)):
@@ -638,6 +758,7 @@ def update_timeslot(timeslot_id: int, timeslot: schemas.TimeSlotCreate, db: Sess
         raise HTTPException(status_code=404, detail="TimeSlot not found")
     
     db_timeslot.day = timeslot.day
+    db_timeslot.department_id = timeslot.department_id
     db_timeslot.start_time = timeslot.start_time
     db_timeslot.end_time = timeslot.end_time
     db_timeslot.is_break = timeslot.is_break

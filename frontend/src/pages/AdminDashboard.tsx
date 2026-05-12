@@ -1,6 +1,7 @@
 import { useAuth } from '../context/AuthContext';
 import { Link } from 'react-router-dom';
 import { Building2, Users, Calendar, ArrowRight, TrendingUp, Sparkles } from 'lucide-react';
+import AppLogo from '../components/AppLogo';
 
 const AdminDashboard = () => {
     const { user } = useAuth();
@@ -29,7 +30,16 @@ const AdminDashboard = () => {
                 overflow: 'hidden',
                 padding: '2.5rem'
             }}>
-                <div style={{ position: 'relative', zIndex: 1, maxWidth: '600px' }}>
+                <div style={{ position: 'relative', zIndex: 1, maxWidth: '680px' }}>
+                    <AppLogo
+                        size={104}
+                        style={{
+                            background: 'rgba(255,255,255,0.9)',
+                            borderRadius: '1rem',
+                            padding: '0.35rem',
+                            marginBottom: '1rem',
+                        }}
+                    />
                     <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', background: 'rgba(255,255,255,0.2)', padding: '0.25rem 0.75rem', borderRadius: '100px', fontSize: '0.875rem', fontWeight: 500, marginBottom: '1rem', backdropFilter: 'blur(4px)' }}>
                         <Sparkles size={16} />
                         Welcome back, {user?.username || 'Admin'}

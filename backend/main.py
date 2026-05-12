@@ -1,13 +1,14 @@
 import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 
 # Set up logging for the backend
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 from routers import auth, admin, timetable
-from database import engine, Base, wait_for_db
+from database import engine, Base, wait_for_db, migrate_subject_code_uniqueness, migrate_timeslot_departments
 
 app = FastAPI(title="TimeWise AI Backend", version="0.1.0")
 
@@ -15,12 +16,26 @@ app = FastAPI(title="TimeWise AI Backend", version="0.1.0")
 from seed import seed
 @app.on_event("startup")
 def on_startup():
+    startup_lock_key = 502601
+    lock_connection = None
     try:
         wait_for_db()
+        if engine.dialect.name == "postgresql":
+            lock_connection = engine.connect()
+            lock_connection.execute(text("SELECT pg_advisory_lock(:key)"), {"key": startup_lock_key})
+
         Base.metadata.create_all(bind=engine)
+        migrate_subject_code_uniqueness()
+        migrate_timeslot_departments()
         seed()
     except Exception as e:
         logger.error(f"Startup error: {e}")
+    finally:
+        if lock_connection is not None:
+            try:
+                lock_connection.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": startup_lock_key})
+            finally:
+                lock_connection.close()
 
 import os
 

@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { LockKeyhole, UserRound } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import AppLogo from '../components/AppLogo';
+import { APP_NAME } from '../utils/branding';
 
 const Login = () => {
     const navigate = useNavigate();
@@ -43,13 +45,15 @@ const Login = () => {
                 padding: '2rem',
                 background: 'rgba(255,255,255,0.92)',
             }}>
-                <div style={{ marginBottom: '1.5rem' }}>
-                    <h1 style={{ fontSize: '2rem', fontWeight: 800, marginBottom: '0.5rem' }}>TimeWise Login</h1>
-                    <p style={{ color: 'var(--text-muted)', margin: 0 }}>
-                        Admin uses `admin / admin`. Faculty uses `faculty id / faculty id`.
-                    </p>
+                <div style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                    <AppLogo size={64} />
+                    <div>
+                        <h1 style={{ fontSize: '2rem', fontWeight: 800, marginBottom: '0.5rem' }}>{APP_NAME} Login</h1>
+                        <p style={{ color: 'var(--text-muted)', margin: 0 }}>
+                            Admin uses `admin / admin`. Faculty uses `faculty id / faculty id`.
+                        </p>
+                    </div>
                 </div>
-
                 <form onSubmit={handleSubmit}>
                     <div className="input-group">
                         <label className="input-label">Username</label>

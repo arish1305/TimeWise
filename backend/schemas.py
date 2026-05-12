@@ -54,6 +54,7 @@ class AcademicYearCreate(AcademicYearBase):
 
 class AcademicYear(AcademicYearBase):
     id: int
+    department: Optional[Department] = None
     class Config:
         from_attributes = True
 
@@ -191,6 +192,7 @@ class Timetable(TimetableBase):
     created_at: Optional[datetime] = None
     section: Optional[SectionWithYear] = None
     entries: List[TimetableEntry] = []
+    time_slots: List['TimeSlot'] = []
     class Config:
         from_attributes = True
 
@@ -238,6 +240,7 @@ class RegenerateRequest(BaseModel):
     semester: int
 
 class TimeSlotBase(BaseModel):
+    department_id: Optional[int] = None
     day: str
     start_time: time
     end_time: time
@@ -251,6 +254,15 @@ class TimeSlot(TimeSlotBase):
     id: int
     class Config:
         from_attributes = True
+
+class DepartmentScheduleBuildRequest(BaseModel):
+    days: List[str] = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+    start_time: time
+    end_time: time
+    break_start: time
+    break_end: time
+    lunch_start: time
+    lunch_end: time
 
 # --- Validation Schemas ---
 class ValidationResponse(BaseModel):

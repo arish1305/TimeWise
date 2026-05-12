@@ -1,6 +1,7 @@
 from datetime import time
 
 from sqlalchemy import create_engine
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -86,6 +87,29 @@ def test_faculty_timetable_includes_multiple_subjects_for_same_faculty():
     assert {entry["subject_code"] for entry in payload["entries"]} == {"CS201", "CS202"}
     assert {entry["section_name"] for entry in payload["entries"]} == {"A", "B"}
     assert {entry["timetable_status"] for entry in payload["entries"]} == {"DRAFT", "ACTIVE"}
+
+
+def test_subject_code_can_repeat_across_departments_but_not_within_one_department():
+    db = make_session()
+
+    ai = models.Department(name="Artificial Intelligence", code="AI")
+    bct = models.Department(name="Blockchain Technology", code="BCT")
+    db.add_all([ai, bct])
+    db.flush()
+
+    db.add_all([
+        models.Subject(name="Software Project Management", code="SCSB400", department=ai, semester=7),
+        models.Subject(name="Software Project Management", code="SCSB400", department=bct, semester=7),
+    ])
+    db.commit()
+
+    db.add(models.Subject(name="Duplicate", code="SCSB400", department=ai, semester=7))
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+    else:
+        raise AssertionError("Duplicate subject code in the same department should fail")
 
 
 def test_draft_timetables_are_treated_as_faculty_commitments():

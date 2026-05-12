@@ -39,6 +39,8 @@
   --border-color: #e2e8f0;
 
   --error-color: #ef4444;
+  --danger-200: #fecaca;
+  --danger-600: #dc2626;
   --warning-color: #f59e0b;
   --success-color: #10b981;
 
@@ -132,7 +134,10 @@ h6 {
   cursor: pointer;
   border: 1px solid transparent;
   gap: 0.5rem;
-  letter-spacing: 0.025em;
+  letter-spacing: 0;
+  text-decoration: none;
+  min-height: 2.5rem;
+  box-sizing: border-box;
 }
 
 .btn-primary {
@@ -142,7 +147,6 @@ h6 {
 }
 
 .btn-primary:hover {
-  transform: translateY(-2px);
   box-shadow: 0 6px 16px rgba(37, 99, 235, 0.4);
   background: linear-gradient(135deg, var(--primary-400), var(--primary-600));
 }
@@ -186,6 +190,8 @@ h6 {
   font-size: 0.95rem;
   transition: all 0.2s ease;
   box-shadow: var(--shadow-sm);
+  box-sizing: border-box;
+  min-width: 0;
 }
 
 .input-field:focus {
@@ -206,7 +212,6 @@ h6 {
 
 .card:hover {
   box-shadow: var(--shadow-md);
-  transform: translateY(-2px);
 }
 
 /* Gradients */

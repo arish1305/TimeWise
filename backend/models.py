@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, Enum, Time, CheckConstraint, Table, JSON, DateTime
+from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, Enum, Time, CheckConstraint, Table, JSON, DateTime, UniqueConstraint
 from sqlalchemy.orm import relationship
 from database import Base
 import enum
@@ -81,9 +81,12 @@ class Section(Base):
 
 class Subject(Base):
     __tablename__ = "subjects"
+    __table_args__ = (
+        UniqueConstraint("department_id", "code", name="uq_subject_department_code"),
+    )
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, index=True)
-    code = Column(String, unique=True, index=True) # e.g., "CS101"
+    code = Column(String, index=True) # e.g., "CS101"
     department_id = Column(Integer, ForeignKey("departments.id"))
     semester = Column(Integer) # e.g., 3 (for Year 2)
     subject_type = Column(String, default=SubjectType.THEORY)
@@ -131,6 +134,7 @@ class FacultySubjectAssignment(Base):
 class TimeSlot(Base):
     __tablename__ = "timeslots"
     id = Column(Integer, primary_key=True, index=True)
+    department_id = Column(Integer, ForeignKey("departments.id"), nullable=True)
     day = Column(String) # Monday, Tuesday
     start_time = Column(Time)
     end_time = Column(Time)

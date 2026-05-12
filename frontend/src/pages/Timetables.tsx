@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
-import { RefreshCw, Calendar, ChevronDown, Users, Filter, X, Check, Trash2, Download } from 'lucide-react';
+import { RefreshCw, ChevronDown, Users, Filter, X, Check, Trash2, Download } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import api from '../api/axios';
 import '../styles/Timetables.css';
 import { downloadAllTimetablesPdf } from '../utils/pdfExport';
+import { downloadAllTimetablesWord } from '../utils/wordExport';
+import AppLogo from '../components/AppLogo';
 
 const Timetables = () => {
     // Data State
@@ -39,9 +41,11 @@ const Timetables = () => {
         }
     };
 
-    const fetchTimeSlots = async () => {
+    const fetchTimeSlots = async (deptId?: string | number) => {
         try {
-            const res = await api.get('/admin/timeslots');
+            const res = await api.get('/admin/timeslots', {
+                params: deptId ? { department_id: deptId } : undefined
+            });
             const sorted = res.data.sort((a: any, b: any) => a.start_time.localeCompare(b.start_time));
             setTimeSlots(sorted);
         } catch (err) {
@@ -55,6 +59,7 @@ const Timetables = () => {
         setSelectedSection('');
         setAcademicYears([]);
         setSections([]);
+        fetchTimeSlots(deptId || undefined);
 
         if (!deptId) return;
 
@@ -123,6 +128,7 @@ const Timetables = () => {
     const [allTimetables, setAllTimetables] = useState<any[]>([]);
     const [showAllTimetables, setShowAllTimetables] = useState(false);
     const [exportingTimetables, setExportingTimetables] = useState(false);
+    const [exportingTimetablesWord, setExportingTimetablesWord] = useState(false);
 
     const generateAllTimetables = async () => {
         if (!window.confirm("This will generate timetables for ALL sections. Existing timetables will be replaced. Continue?")) {
@@ -175,6 +181,9 @@ const Timetables = () => {
         try {
             const res = await api.get(`/timetables/${timetableId}`);
             setTimetable(res.data);
+            if (res.data?.time_slots?.length) {
+                setTimeSlots(res.data.time_slots.sort((a: any, b: any) => a.start_time.localeCompare(b.start_time)));
+            }
             setBulkResults(null);
             setShowAllTimetables(false);
             validateTimetable(res.data.id);
@@ -185,26 +194,35 @@ const Timetables = () => {
         }
     };
 
+    const fetchGeneratedTimetableDetails = async () => {
+        const pageSize = 100;
+        let skip = 0;
+        const timetables: any[] = [];
+
+        while (true) {
+            const listRes = await api.get('/timetables/', { params: { skip, limit: pageSize } });
+            const page = listRes.data || [];
+            timetables.push(...page);
+            if (page.length < pageSize) break;
+            skip += pageSize;
+        }
+
+        if (!timetables.length) {
+            throw new Error('No generated timetables found to download.');
+        }
+
+        const detailResponses = await Promise.all(
+            timetables.map((tt: any) => api.get(`/timetables/${tt.id}`))
+        );
+        return detailResponses.map((res) => res.data);
+    };
+
     const downloadGeneratedTimetablesPdf = async () => {
         setExportingTimetables(true);
         setError(null);
 
         try {
-            const listRes = await api.get('/timetables/', { params: { limit: 1000 } });
-            const timetables = listRes.data || [];
-
-            if (!timetables.length) {
-                setError('No generated timetables found to download.');
-                return;
-            }
-
-            const detailResponses = await Promise.all(
-                timetables.map((tt: any) => api.get(`/timetables/${tt.id}`))
-            );
-            await downloadAllTimetablesPdf(
-                detailResponses.map((res) => res.data),
-                timeSlots
-            );
+            await downloadAllTimetablesPdf(await fetchGeneratedTimetableDetails(), timeSlots);
         } catch (err: any) {
             console.error('Failed to export timetables', err);
             setError(err.message || err.response?.data?.detail || 'Failed to download timetable PDF.');
@@ -213,9 +231,29 @@ const Timetables = () => {
         }
     };
 
+    const downloadGeneratedTimetablesWord = async () => {
+        setExportingTimetablesWord(true);
+        setError(null);
+
+        try {
+            downloadAllTimetablesWord(await fetchGeneratedTimetableDetails(), timeSlots);
+        } catch (err: any) {
+            console.error('Failed to export Word timetables', err);
+            setError(err.message || err.response?.data?.detail || 'Failed to download timetable Word document.');
+        } finally {
+            setExportingTimetablesWord(false);
+        }
+    };
+
+    const getTimetableDepartmentName = () =>
+        timetable?.section?.academic_year?.department?.name ||
+        departments.find((d: any) => d.id == selectedDept)?.name ||
+        '-';
+
     // Grid Rendering Helper
     const renderGrid = () => {
         if (!timetable || !timeSlots.length) return null;
+        const displayTimeSlots = timetable.time_slots?.length ? timetable.time_slots : timeSlots;
 
         const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
 
@@ -229,7 +267,7 @@ const Timetables = () => {
 
         const uniqueTimes: any[] = [];
         const seen = new Set();
-        timeSlots.forEach((ts: any) => {
+        displayTimeSlots.forEach((ts: any) => {
             const key = `${ts.start_time}-${ts.end_time}`;
             if (!seen.has(key)) {
                 seen.add(key);
@@ -262,6 +300,10 @@ const Timetables = () => {
             >
                 {/* Header Information */}
                 <div className="timetable-header-info">
+                    <div className="info-item info-item-wide">
+                        <span className="label">Department</span>
+                        <div className="value">{getTimetableDepartmentName()}</div>
+                    </div>
                     <div className="info-item">
                         <span className="label">Year</span>
                         <div className="value">
@@ -324,7 +366,7 @@ const Timetables = () => {
                                             }
                                         }
 
-                                        const slot = timeSlots.find((ts: any) => ts.day === day && ts.start_time === t.start);
+                                        const slot = displayTimeSlots.find((ts: any) => ts.day === day && ts.start_time === t.start);
                                         const entries = slot ? entryMap[slot.id] : null;
                                         const isConflict = slot && validation?.error_slots?.includes(slot.id);
 
@@ -398,9 +440,7 @@ const Timetables = () => {
         <div className="animate-fade-in page-container">
             <div style={{ marginBottom: '2.5rem' }}>
                 <h1 style={{ fontSize: '2rem', fontWeight: 800, margin: '0 0 0.5rem 0', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                    <div style={{ background: 'var(--primary-100)', color: 'var(--primary-600)', padding: '0.5rem', borderRadius: 'var(--radius-md)' }}>
-                        <Calendar size={28} />
-                    </div>
+                    <AppLogo size={48} />
                     Timetable Generator
                 </h1>
                 <p style={{ color: 'var(--text-muted)', fontSize: '1.1rem', margin: 0 }}>
@@ -538,6 +578,16 @@ const Timetables = () => {
                         >
                             {exportingTimetables ? <RefreshCw className="animate-spin" size={18} /> : <Download size={18} />}
                             {exportingTimetables ? 'Preparing PDF...' : 'Download All Timetables PDF'}
+                        </button>
+
+                        <button
+                            className="btn btn-outline"
+                            onClick={downloadGeneratedTimetablesWord}
+                            disabled={exportingTimetablesWord}
+                            style={{ background: 'white' }}
+                        >
+                            {exportingTimetablesWord ? <RefreshCw className="animate-spin" size={18} /> : <Download size={18} />}
+                            {exportingTimetablesWord ? 'Preparing Word...' : 'Download All Timetables Word'}
                         </button>
                         
                         <button
@@ -698,7 +748,7 @@ const Timetables = () => {
                         className="card empty-placeholder"
                     >
                         <div className="icon-circle">
-                            <Calendar size={32} />
+                            <AppLogo size={64} />
                         </div>
                         <h3 style={{ margin: '0 0 0.5rem 0', color: 'var(--text-primary)' }}>No Timetable Active</h3>
                         <p style={{ margin: 0 }}>Configure parameters above and click generate to view the schedule.</p>

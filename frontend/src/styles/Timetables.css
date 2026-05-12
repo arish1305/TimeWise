@@ -11,7 +11,7 @@
 }
 
 .timetable-header-info {
-    padding: 1.5rem 2rem;
+    padding: 1rem 1.25rem;
     border-bottom: 1px solid var(--border-light);
     display: flex;
     flex-wrap: wrap;
@@ -24,12 +24,17 @@
     display: flex;
     flex-direction: column;
     gap: 0.25rem;
+    min-width: 0;
+}
+
+.info-item-wide {
+    max-width: min(460px, 100%);
 }
 
 .info-item .label {
     font-size: 0.75rem;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: 0;
     color: var(--text-muted);
     font-weight: 600;
 }
@@ -42,11 +47,12 @@
     padding: 0.25rem 0.75rem;
     border-radius: 9999px;
     border: 1px solid rgba(59, 130, 246, 0.2);
+    overflow-wrap: anywhere;
 }
 
 .timetable-container {
     overflow-x: auto;
-    max-height: 75vh;
+    max-height: none;
     position: relative;
     padding-bottom: 1rem;
     background: var(--bg-app);
@@ -56,10 +62,10 @@
 .timetable-grid {
     width: 100%;
     border-collapse: separate;
-    border-spacing: 8px;
-    /* Softer, larger spacing */
-    min-width: 1100px;
-    padding: 1rem;
+    border-spacing: 6px;
+    min-width: 960px;
+    padding: 0.75rem;
+    table-layout: fixed;
 }
 
 /* Headers */
@@ -68,11 +74,11 @@
     top: 0;
     z-index: 10;
     background: white;
-    padding: 1rem;
+    padding: 0.65rem 0.5rem;
     font-weight: 700;
     text-transform: uppercase;
     font-size: 0.75rem;
-    letter-spacing: 0.1em;
+    letter-spacing: 0;
     color: var(--text-secondary);
     border-bottom: 2px solid var(--primary-200);
     border-radius: var(--radius-md) var(--radius-md) 0 0;
@@ -84,7 +90,7 @@
     left: 0;
     z-index: 20;
     background: white;
-    width: 130px;
+    width: 104px;
     border-right: 2px solid var(--primary-200);
     border-radius: var(--radius-md) 0 0 var(--radius-md);
     box-shadow: 2px 0 4px rgba(0, 0, 0, 0.02);
@@ -100,16 +106,16 @@
     color: var(--primary-700);
     text-align: center;
     vertical-align: middle;
-    padding: 1.25rem 1rem;
+    padding: 0.85rem 0.65rem;
     border-radius: var(--radius-md);
     box-shadow: 2px 0 6px -1px rgba(0, 0, 0, 0.05);
     border: 1px solid var(--border-light);
-    letter-spacing: 0.05em;
+    letter-spacing: 0;
 }
 
 /* Content Cells */
 .timetable-cell {
-    height: 110px;
+    height: 82px;
     vertical-align: middle;
     padding: 0;
     border-radius: var(--radius-lg);
@@ -119,7 +125,6 @@
 }
 
 .timetable-cell:hover {
-    transform: scale(1.02);
     box-shadow: var(--shadow-lg);
     z-index: 2;
 }
@@ -170,8 +175,8 @@
     align-items: center;
     justify-content: center;
     height: 100%;
-    padding: 0.75rem;
-    gap: 0.5rem;
+    padding: 0.5rem;
+    gap: 0.35rem;
     position: relative;
     z-index: 1;
 }
@@ -179,7 +184,7 @@
 .subject-code {
     font-weight: 800;
     color: var(--primary-800);
-    font-size: 1.05rem;
+    font-size: 0.9rem;
     text-align: center;
     line-height: 1.2;
 }
@@ -218,7 +223,7 @@
     text-orientation: mixed;
     text-align: center;
     font-weight: 800;
-    letter-spacing: 0.3em;
+    letter-spacing: 0.12em;
     border-radius: var(--radius-lg);
     padding: 0.5rem;
     box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.02);
@@ -227,8 +232,8 @@
 /* Layout overrides specifically for the timetable page structure */
 .controls-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 1.5rem;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 1rem;
     align-items: end;
     /* Align items to the bottom so fields with labels look aligned to the button */
 }
@@ -334,7 +339,6 @@
     background: white;
     border-color: var(--primary-300);
     box-shadow: var(--shadow-sm);
-    transform: translateX(4px);
 }
 
 .item-title {
@@ -445,7 +449,7 @@
     font-weight: 500;
     color: var(--text-muted);
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: 0;
 }
 
 .generated-list {

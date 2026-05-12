@@ -1,6 +1,8 @@
 import { NavLink } from 'react-router-dom';
 import { LayoutDashboard, Users, Building2, Calendar, Clock3, LogOut, NotebookTabs } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import AppLogo from './AppLogo';
+import { APP_NAME } from '../utils/branding';
 
 const Sidebar = () => {
     const { logout, role } = useAuth();
@@ -14,7 +16,6 @@ const Sidebar = () => {
             { icon: Building2, label: 'Departments', path: '/admin/departments' },
             { icon: Users, label: 'Faculty', path: '/admin/faculty' },
             { icon: NotebookTabs, label: 'Faculty Timetable', path: '/admin/faculty-timetable' },
-            { icon: Clock3, label: 'Time Slots', path: '/admin/timeslots' },
             { icon: Calendar, label: 'Timetables', path: '/admin/timetables' },
         ];
 
@@ -30,14 +31,8 @@ const Sidebar = () => {
             top: '1rem'
         }}>
             <div style={{ marginBottom: '2.5rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                <div style={{
-                    width: '36px',
-                    height: '36px',
-                    background: 'linear-gradient(135deg, var(--primary-500), var(--secondary-500))',
-                    borderRadius: '10px',
-                    boxShadow: '0 4px 10px rgba(99, 102, 241, 0.3)'
-                }}></div>
-                <h2 style={{ fontSize: '1.25rem', fontWeight: '700', letterSpacing: '-0.5px' }}>TimeWise AI</h2>
+                <AppLogo size={44} />
+                <h2 style={{ fontSize: '1.25rem', fontWeight: '700', letterSpacing: '-0.5px' }}>{APP_NAME}</h2>
             </div>
 
             <nav style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>

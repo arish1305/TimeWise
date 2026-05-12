@@ -32,6 +32,17 @@ def _is_cbcs_subject(subject: Optional[models.Subject]) -> bool:
     return bool(allowed_departments)
 
 
+def _query_department_timeslots(db: Session, department_id: int, include_breaks: bool = False):
+    q = db.query(models.TimeSlot).filter(models.TimeSlot.department_id == department_id)
+    if not include_breaks:
+        q = q.filter(models.TimeSlot.is_break == False)
+    return q
+
+
+def _time_value(value: Any) -> str:
+    return str(value or "")
+
+
 def _entries_share_cbcs_session(left: models.TimetableEntry, right: models.TimetableEntry) -> bool:
     if not left.subject or not right.subject:
         return False
@@ -382,8 +393,9 @@ def validate_timetable_internal(timetable: models.Timetable, db: Session):
                 
     for subject_id, days in subject_days.items():
         for day, count in days.items():
-            if count > 2:
-                sub = db.query(models.Subject).get(subject_id)
+            sub = db.query(models.Subject).get(subject_id)
+            allowed_same_day = max(2, int(getattr(sub, "continuous_hours", 1) or 1))
+            if count > allowed_same_day:
                 warnings.append(f"Uneven distribution: Subject '{sub.code if sub else subject_id}' scheduled {count} times on {day}.")
                 # Note: We aren't capturing the specific slot IDs for this warning easily here, but that's okay for now.
                 
@@ -429,9 +441,9 @@ def generate_timetable(
             raise HTTPException(status_code=400, detail="No subjects found for this Department and Semester")
 
         # 3. Fetch TimeSlots
-        timeslots_db = db.query(models.TimeSlot).filter(models.TimeSlot.is_break == False).all()
+        timeslots_db = _query_department_timeslots(db, department_id, include_breaks=False).all()
         if not timeslots_db:
-            raise HTTPException(status_code=400, detail="No time slots defined")
+            raise HTTPException(status_code=400, detail="Build the Department Day Schedule before generating timetables")
 
         # 4. Prepare Data for AI Engine
         import os
@@ -532,6 +544,39 @@ def generate_timetable(
                 "faculty_id": faculty_id,
                 "timeslot_id": timeslot_id
             })
+
+        def faculty_has_prior_commitment(faculty_id: Optional[int], timeslot_id: int) -> bool:
+            if not faculty_id:
+                return False
+            return db.query(models.TimetableEntry).join(models.Timetable).filter(
+                models.Timetable.section_id != request.section_id,
+                models.Timetable.status.in_(COMMITMENT_STATUSES),
+                models.TimetableEntry.faculty_id == faculty_id,
+                models.TimetableEntry.timeslot_id == timeslot_id,
+            ).first() is not None
+
+        def find_continuous_slots(subject: models.Subject, faculty_id: Optional[int], block_size: int):
+            ordered_slots = sorted(
+                timeslots_db,
+                key=lambda slot: (DAY_ORDER.get(slot.day, 99), slot.start_time, slot.id),
+            )
+            by_day: Dict[str, List[models.TimeSlot]] = {}
+            for slot in ordered_slots:
+                by_day.setdefault(slot.day, []).append(slot)
+
+            days = sorted(by_day.keys(), key=lambda day: DAY_ORDER.get(day, 99))
+            for day in days:
+                slots = by_day[day]
+                for index in range(0, len(slots) - block_size + 1):
+                    block = slots[index:index + block_size]
+                    if any(block[i].end_time != block[i + 1].start_time for i in range(len(block) - 1)):
+                        continue
+                    if any(slot.id in locked_slot_ids and not can_share_locked_slot(subject, slot.id) for slot in block):
+                        continue
+                    if any(faculty_has_prior_commitment(faculty_id, slot.id) for slot in block):
+                        continue
+                    return block
+            return []
             locked_entries_by_slot.setdefault(timeslot_id, []).append({
                 "subject_id": subject_id,
                 "faculty_id": faculty_id,
@@ -650,6 +695,37 @@ def generate_timetable(
                     created_by=models.EntryCreator.AI.value
                 ))
                 remember_locked_entry(s.id, f_id, ts_id)
+
+        # Reserve one requested back-to-back block before the AI schedules the
+        # remaining weekly hours.
+        for s in subjects_db:
+            block_size = min(int(s.continuous_hours or 1), int(s.weekly_hours or 1))
+            if block_size <= 1:
+                continue
+            existing_hours = sum(1 for item in locked_slots_payload if item.get("subject_id") == s.id)
+            if existing_hours >= block_size:
+                continue
+
+            f_id = subject_faculty_ids.get(s.id)
+            block = find_continuous_slots(s, f_id, block_size)
+            if not block:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Could not reserve {block_size} back-to-back periods for subject '{s.code}'. Adjust department schedule or subject constraints.",
+                )
+
+            for slot in block:
+                if any(entry["subject_id"] == s.id for entry in locked_entries_by_slot.get(slot.id, [])):
+                    continue
+                db.add(models.TimetableEntry(
+                    timetable_id=new_timetable.id,
+                    timeslot_id=slot.id,
+                    subject_id=s.id,
+                    faculty_id=f_id,
+                    is_locked=True,
+                    created_by=models.EntryCreator.AI.value
+                ))
+                remember_locked_entry(s.id, f_id, slot.id)
         db.flush()
 
         # 5. Prepare Data for AI Engine
@@ -666,6 +742,7 @@ def generate_timetable(
                 "id": s.id,
                 "name": s.name,
                 "credits": s.weekly_hours, 
+                "continuous_hours": s.continuous_hours,
                 "faculty_id": fid,
                 "is_elective": s.is_elective,
                 "elective_group_id": s.elective_group_id,
@@ -674,7 +751,7 @@ def generate_timetable(
 
         faculty_db = db.query(models.Faculty).filter(models.Faculty.id.in_(faculty_ids)).all()
         faculty_payload = [{"id": f.id, "name": f.name} for f in faculty_db]
-        timeslots_payload = [{"id": t.id, "day": t.day, "time": str(t.start_time)} for t in timeslots_db]
+        timeslots_payload = [{"id": t.id, "day": t.day, "time": str(t.start_time), "end_time": str(t.end_time)} for t in timeslots_db]
         
         # Fetch commitments/preferences
         existing_commitments = {}
@@ -1029,9 +1106,16 @@ def get_timetable(
         "id": tt.id,
         "section_id": tt.section_id,
         "semester": tt.semester,
+        "version": tt.version,
         "status": tt.status,
+        "created_at": tt.created_at,
         "section": tt.section,
-        "entries": list(tt.entries)
+        "entries": list(tt.entries),
+        "time_slots": _query_department_timeslots(
+            db,
+            tt.section.academic_year.department_id,
+            include_breaks=True,
+        ).all() if tt.section and tt.section.academic_year else [],
     }
 
     # Find related CBCS/elective entries in active timetables that share a slot

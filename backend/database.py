@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 import os
@@ -28,6 +28,101 @@ def wait_for_db(retries=10, delay=2):
             logger.warning(f"Database unavailable, waiting {delay}s... ({i+1}/{retries})")
             time.sleep(delay)
     logger.error("Could not connect to database after several retries.")
+
+def migrate_subject_code_uniqueness():
+    if engine.dialect.name != "postgresql":
+        return
+
+    constraint_column_query = """
+        SELECT c.conname
+        FROM pg_constraint c
+        JOIN pg_class t ON t.oid = c.conrelid
+        JOIN unnest(c.conkey) WITH ORDINALITY AS u(attnum, ord) ON true
+        JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = u.attnum
+        WHERE t.relname = 'subjects' AND c.contype = 'u'
+        GROUP BY c.oid, c.conname
+        HAVING string_agg(a.attname, ',' ORDER BY u.ord) = :columns
+    """
+
+    unique_index_query = """
+        SELECT i.relname
+        FROM pg_index ix
+        JOIN pg_class t ON t.oid = ix.indrelid
+        JOIN pg_class i ON i.oid = ix.indexrelid
+        JOIN unnest(ix.indkey) WITH ORDINALITY AS u(attnum, ord) ON true
+        JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = u.attnum
+        LEFT JOIN pg_constraint c ON c.conindid = i.oid
+        WHERE t.relname = 'subjects' AND ix.indisunique AND c.oid IS NULL
+        GROUP BY i.oid, i.relname
+        HAVING string_agg(a.attname, ',' ORDER BY u.ord) = :columns
+    """
+
+    with engine.begin() as conn:
+        preparer = conn.dialect.identifier_preparer
+
+        code_constraints = conn.execute(
+            text(constraint_column_query),
+            {"columns": "code"},
+        ).scalars().all()
+        for constraint_name in code_constraints:
+            conn.execute(text(f"ALTER TABLE subjects DROP CONSTRAINT IF EXISTS {preparer.quote(constraint_name)}"))
+
+        code_indexes = conn.execute(
+            text(unique_index_query),
+            {"columns": "code"},
+        ).scalars().all()
+        for index_name in code_indexes:
+            conn.execute(text(f"DROP INDEX IF EXISTS {preparer.quote(index_name)}"))
+
+        has_department_code_constraint = conn.execute(
+            text("""
+                SELECT 1
+                FROM pg_constraint
+                WHERE conrelid = 'subjects'::regclass
+                  AND conname = 'uq_subject_department_code'
+                  AND contype = 'u'
+            """)
+        ).scalar()
+
+        if not has_department_code_constraint:
+            conn.execute(text(
+                "ALTER TABLE subjects "
+                "ADD CONSTRAINT uq_subject_department_code UNIQUE (department_id, code)"
+            ))
+
+def migrate_timeslot_departments():
+    if engine.dialect.name != "postgresql":
+        return
+
+    with engine.begin() as conn:
+        has_department_id = conn.execute(text("""
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_name = 'timeslots'
+              AND column_name = 'department_id'
+        """)).scalar()
+
+        if not has_department_id:
+            conn.execute(text("ALTER TABLE timeslots ADD COLUMN department_id INTEGER"))
+
+        has_foreign_key = conn.execute(text("""
+            SELECT 1
+            FROM pg_constraint c
+            JOIN unnest(c.conkey) WITH ORDINALITY AS u(attnum, ord) ON true
+            JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = u.attnum
+            WHERE c.conrelid = 'timeslots'::regclass
+              AND c.confrelid = 'departments'::regclass
+              AND c.contype = 'f'
+            GROUP BY c.oid
+            HAVING string_agg(a.attname, ',' ORDER BY u.ord) = 'department_id'
+        """)).scalar()
+
+        if not has_foreign_key:
+            conn.execute(text(
+                "ALTER TABLE timeslots "
+                "ADD CONSTRAINT fk_timeslots_department_id "
+                "FOREIGN KEY (department_id) REFERENCES departments(id)"
+            ))
 
 # The call to wait_for_db should be done within the application startup
 

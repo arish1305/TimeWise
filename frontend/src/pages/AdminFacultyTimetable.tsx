@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Calendar, Download, RefreshCw, Search, Users } from 'lucide-react';
 import api from '../api/axios';
 import { downloadAllFacultyTimetablesZip, downloadFacultyTimetablePdf } from '../utils/pdfExport';
+import AppLogo from '../components/AppLogo';
 
 interface FacultyOption {
     id: number;
@@ -167,11 +168,14 @@ const AdminFacultyTimetable = () => {
 
     return (
         <div className="animate-fade-in">
-            <div style={{ marginBottom: '2rem' }}>
-                <h1 style={{ fontSize: '2rem', fontWeight: 800, marginBottom: '0.35rem' }}>Faculty Timetable</h1>
-                <p style={{ color: 'var(--text-muted)', margin: 0 }}>
-                    Search by faculty name, faculty id code, or choose from the dropdown.
-                </p>
+            <div style={{ marginBottom: '2rem', display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                <AppLogo size={52} />
+                <div>
+                    <h1 style={{ fontSize: '2rem', fontWeight: 800, marginBottom: '0.35rem' }}>Faculty Timetable</h1>
+                    <p style={{ color: 'var(--text-muted)', margin: 0 }}>
+                        Search by faculty name, faculty id code, or choose from the dropdown.
+                    </p>
+                </div>
             </div>
 
             <div className="card" style={{ marginBottom: '2rem' }}>

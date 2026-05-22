@@ -124,6 +124,93 @@ def migrate_timeslot_departments():
                 "FOREIGN KEY (department_id) REFERENCES departments(id)"
             ))
 
+
+def migrate_section_v2_fields():
+    if engine.dialect.name != "postgresql":
+        return
+
+    with engine.begin() as conn:
+        has_section_name = conn.execute(text("""
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_name = 'sections'
+              AND column_name = 'section_name'
+        """)).scalar()
+        if not has_section_name:
+            conn.execute(text("ALTER TABLE sections ADD COLUMN section_name VARCHAR"))
+
+        has_year = conn.execute(text("""
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_name = 'sections'
+              AND column_name = 'year'
+        """)).scalar()
+        if not has_year:
+            conn.execute(text("ALTER TABLE sections ADD COLUMN year INTEGER"))
+
+        has_independent_schedule = conn.execute(text("""
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_name = 'sections'
+              AND column_name = 'independent_schedule'
+        """)).scalar()
+        if not has_independent_schedule:
+            conn.execute(text("ALTER TABLE sections ADD COLUMN independent_schedule BOOLEAN DEFAULT TRUE"))
+
+        conn.execute(text("UPDATE sections SET section_name = name WHERE section_name IS NULL"))
+        conn.execute(text("""
+            UPDATE sections s
+            SET year = ay.level
+            FROM academic_years ay
+            WHERE s.academic_year_id = ay.id
+              AND s.year IS NULL
+        """))
+        conn.execute(text("UPDATE sections SET independent_schedule = TRUE WHERE independent_schedule IS NULL"))
+        conn.execute(text("ALTER TABLE sections ALTER COLUMN independent_schedule SET NOT NULL"))
+
+
+def migrate_scheduling_rules():
+    if engine.dialect.name != "postgresql":
+        return
+
+    with engine.begin() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS scheduling_rules (
+                id SERIAL PRIMARY KEY,
+                department_id INTEGER NULL REFERENCES departments(id),
+                name VARCHAR NOT NULL DEFAULT 'default',
+                rules JSONB NOT NULL DEFAULT '{}'::jsonb,
+                is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+            )
+        """))
+
+        conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS idx_scheduling_rules_department_active
+            ON scheduling_rules(department_id, is_active)
+        """))
+
+        has_global_default = conn.execute(text("""
+            SELECT 1
+            FROM scheduling_rules
+            WHERE department_id IS NULL
+              AND name = 'default'
+              AND is_active = TRUE
+            LIMIT 1
+        """)).scalar()
+
+        if not has_global_default:
+            conn.execute(text("""
+                INSERT INTO scheduling_rules (department_id, name, rules, is_active)
+                VALUES (
+                    NULL,
+                    'default',
+                    '{"max_daily_subjects": 5, "spread_subjects": true, "allow_saturday": false, "max_lab_per_day": 1}'::jsonb,
+                    TRUE
+                )
+            """))
+
 # The call to wait_for_db should be done within the application startup
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

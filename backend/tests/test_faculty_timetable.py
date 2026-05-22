@@ -11,6 +11,7 @@ from routers.timetable import (
     COMMITMENT_STATUSES,
     _build_faculty_timetable_payload,
     _solve_timetable_locally,
+    validate_timetable_internal,
 )
 
 
@@ -110,6 +111,31 @@ def test_subject_code_can_repeat_across_departments_but_not_within_one_departmen
         db.rollback()
     else:
         raise AssertionError("Duplicate subject code in the same department should fail")
+
+
+def test_section_conflict_is_reported_for_unrelated_subjects_in_same_slot():
+    db = make_session()
+
+    department = models.Department(name="AI", code="AI")
+    year = models.AcademicYear(name="Year 3", level=3, department=department)
+    section = models.Section(name="A1", academic_year=year)
+    slot = models.TimeSlot(day="Monday", start_time=time(9, 0), end_time=time(10, 0), department_id=1)
+    subject_one = models.Subject(name="Subject One", code="S1", department=department, semester=5, weekly_hours=1)
+    subject_two = models.Subject(name="Subject Two", code="S2", department=department, semester=5, weekly_hours=1)
+    timetable = models.Timetable(section=section, semester=5, status="DRAFT")
+
+    db.add_all([department, year, section, slot, subject_one, subject_two, timetable])
+    db.flush()
+    db.add_all([
+        models.TimetableEntry(timetable=timetable, subject=subject_one, timeslot=slot),
+        models.TimetableEntry(timetable=timetable, subject=subject_two, timeslot=slot),
+    ])
+    db.commit()
+
+    result = validate_timetable_internal(timetable, db)
+
+    assert result["status"] == "FAIL"
+    assert "Multiple unrelated subjects overlap" in result["errors"][0]
 
 
 def test_draft_timetables_are_treated_as_faculty_commitments():

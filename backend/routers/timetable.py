@@ -193,6 +193,18 @@ def _solve_timetable_locally(
             )
         )
 
+    def ordered_slots_for_group(group_subjects: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        subject_ids = [subject["id"] for subject in group_subjects]
+        return sorted(
+            sorted_slots,
+            key=lambda slot: (
+                max(subject_day_count.get(subject_id, {}).get(slot.get("day"), 0) for subject_id in subject_ids),
+                DAY_ORDER.get(slot.get("day"), 99),
+                str(slot.get("time", "")),
+                slot["id"],
+            )
+        )
+
     schedule: List[Dict[str, Any]] = []
 
     elective_groups: Dict[str, List[Dict[str, Any]]] = {}
@@ -212,7 +224,7 @@ def _solve_timetable_locally(
         for _ in range(sessions_needed):
             assigned = False
             for enforce_max_hours in (True, False):
-                for slot in sorted_slots:
+                for slot in ordered_slots_for_group(group_subjects):
                     if slot["id"] in section_busy:
                         continue
                     if not all(faculty_available(subject, slot["id"], enforce_max_hours) for subject in group_subjects):
@@ -544,6 +556,11 @@ def generate_timetable(
                 "faculty_id": faculty_id,
                 "timeslot_id": timeslot_id
             })
+            locked_entries_by_slot.setdefault(timeslot_id, []).append({
+                "subject_id": subject_id,
+                "faculty_id": faculty_id,
+                "timeslot_id": timeslot_id
+            })
 
         def faculty_has_prior_commitment(faculty_id: Optional[int], timeslot_id: int) -> bool:
             if not faculty_id:
@@ -577,11 +594,13 @@ def generate_timetable(
                         continue
                     return block
             return []
-            locked_entries_by_slot.setdefault(timeslot_id, []).append({
-                "subject_id": subject_id,
-                "faculty_id": faculty_id,
-                "timeslot_id": timeslot_id
-            })
+
+        def find_largest_continuous_slots(subject: models.Subject, faculty_id: Optional[int], requested_size: int):
+            for block_size in range(requested_size, 1, -1):
+                block = find_continuous_slots(subject, faculty_id, block_size)
+                if block:
+                    return block
+            return []
 
         if existing_tt:
             # Fetch existing locked entries (Manual Locks from UI)
@@ -698,21 +717,20 @@ def generate_timetable(
 
         # Reserve one requested back-to-back block before the AI schedules the
         # remaining weekly hours.
+        has_back_to_back_subjects = False
         for s in subjects_db:
             block_size = min(int(s.continuous_hours or 1), int(s.weekly_hours or 1))
             if block_size <= 1:
                 continue
+            has_back_to_back_subjects = True
             existing_hours = sum(1 for item in locked_slots_payload if item.get("subject_id") == s.id)
             if existing_hours >= block_size:
                 continue
 
             f_id = subject_faculty_ids.get(s.id)
-            block = find_continuous_slots(s, f_id, block_size)
+            block = find_largest_continuous_slots(s, f_id, block_size)
             if not block:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Could not reserve {block_size} back-to-back periods for subject '{s.code}'. Adjust department schedule or subject constraints.",
-                )
+                continue
 
             for slot in block:
                 if any(entry["subject_id"] == s.id for entry in locked_entries_by_slot.get(slot.id, [])):
@@ -788,31 +806,7 @@ def generate_timetable(
         import urllib.error
         
         schedule = None
-        try:
-            data = json.dumps(payload).encode('utf-8')
-            req = urllib.request.Request(f"{AI_ENGINE_URL}/optimize", data=data, headers={'Content-Type': 'application/json'})
-            
-            with urllib.request.urlopen(req, timeout=15) as response:
-                if response.status == 200:
-                    result = json.loads(response.read().decode('utf-8'))
-                    if result.get("status") == "success":
-                        schedule = result.get("schedule", [])
-            
-        except urllib.error.HTTPError as e:
-            # Handle AI Engine 400 Bad Request (Validation/Clash errors)
-            if e.code == 400:
-                e.read()
-                schedule = _solve_timetable_locally(
-                    subjects=subjects_payload,
-                    faculty=faculty_payload,
-                    timeslots=timeslots_payload,
-                    constraints=payload["constraints"],
-                    locked_slots=locked_slots_payload,
-                )
-            else:
-                db.rollback()
-                raise HTTPException(status_code=500, detail=f"AI Engine Error: {e.reason}")
-        except Exception as e:
+        if has_back_to_back_subjects:
             schedule = _solve_timetable_locally(
                 subjects=subjects_payload,
                 faculty=faculty_payload,
@@ -820,6 +814,39 @@ def generate_timetable(
                 constraints=payload["constraints"],
                 locked_slots=locked_slots_payload,
             )
+        else:
+            try:
+                data = json.dumps(payload).encode('utf-8')
+                req = urllib.request.Request(f"{AI_ENGINE_URL}/optimize", data=data, headers={'Content-Type': 'application/json'})
+                
+                with urllib.request.urlopen(req, timeout=15) as response:
+                    if response.status == 200:
+                        result = json.loads(response.read().decode('utf-8'))
+                        if result.get("status") == "success":
+                            schedule = result.get("schedule", [])
+                
+            except urllib.error.HTTPError as e:
+                # Handle AI Engine 400 Bad Request (Validation/Clash errors)
+                if e.code == 400:
+                    e.read()
+                    schedule = _solve_timetable_locally(
+                        subjects=subjects_payload,
+                        faculty=faculty_payload,
+                        timeslots=timeslots_payload,
+                        constraints=payload["constraints"],
+                        locked_slots=locked_slots_payload,
+                    )
+                else:
+                    db.rollback()
+                    raise HTTPException(status_code=500, detail=f"AI Engine Error: {e.reason}")
+            except Exception as e:
+                schedule = _solve_timetable_locally(
+                    subjects=subjects_payload,
+                    faculty=faculty_payload,
+                    timeslots=timeslots_payload,
+                    constraints=payload["constraints"],
+                    locked_slots=locked_slots_payload,
+                )
 
         if schedule is not None:
             # Clear previous attempt entries for AI (keeping locked)

@@ -8,7 +8,15 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 logger = logging.getLogger(__name__)
 
 from routers import auth, admin, timetable
-from database import engine, Base, wait_for_db, migrate_subject_code_uniqueness, migrate_timeslot_departments
+from database import (
+    engine,
+    Base,
+    wait_for_db,
+    migrate_subject_code_uniqueness,
+    migrate_timeslot_departments,
+    migrate_section_v2_fields,
+    migrate_scheduling_rules,
+)
 
 app = FastAPI(title="TimeWise AI Backend", version="0.1.0")
 
@@ -27,6 +35,8 @@ def on_startup():
         Base.metadata.create_all(bind=engine)
         migrate_subject_code_uniqueness()
         migrate_timeslot_departments()
+        migrate_section_v2_fields()
+        migrate_scheduling_rules()
         seed()
     except Exception as e:
         logger.error(f"Startup error: {e}")

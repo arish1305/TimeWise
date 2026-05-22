@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from datetime import datetime, time
 from models import UserRole, FacultyType, SubjectType, EntryCreator
 
@@ -60,9 +60,12 @@ class AcademicYear(AcademicYearBase):
 
 # --- Section Schemas ---
 class SectionBase(BaseModel):
-    name: str
+    name: str = ""
     academic_year_id: int
     student_count: int = 60
+    section_name: Optional[str] = None
+    year: Optional[int] = None
+    independent_schedule: bool = True
 
 class SectionCreate(SectionBase):
     pass
@@ -271,3 +274,26 @@ class ValidationResponse(BaseModel):
     warnings: List[str]
     error_slots: List[int] = []
     warning_slots: List[int] = []
+
+
+class SchedulingRuleBase(BaseModel):
+    department_id: Optional[int] = None
+    name: str = "default"
+    rules: Dict[str, Any] = {}
+    is_active: bool = True
+
+
+class SchedulingRuleUpdate(BaseModel):
+    department_id: Optional[int] = None
+    name: str = "default"
+    rules: Dict[str, Any]
+    is_active: bool = True
+
+
+class SchedulingRule(SchedulingRuleBase):
+    id: int
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True

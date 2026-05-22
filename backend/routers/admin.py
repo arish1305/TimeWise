@@ -22,6 +22,15 @@ XLSX_NS = {
 }
 
 
+def _default_rule_payload() -> Dict[str, Any]:
+    return {
+        "max_daily_subjects": 5,
+        "spread_subjects": True,
+        "allow_saturday": False,
+        "max_lab_per_day": 1,
+    }
+
+
 def _normalize_header(value: str) -> str:
     return value.strip().lower().replace(" ", "_")
 
@@ -372,7 +381,22 @@ def delete_academic_year(year_id: int, db: Session = Depends(database.get_db)):
 # --- Sections ---
 @router.post("/sections", response_model=schemas.Section)
 def create_section(section: schemas.SectionCreate, db: Session = Depends(database.get_db)):
-    db_section = models.Section(**section.dict())
+    year = db.query(models.AcademicYear).filter(models.AcademicYear.id == section.academic_year_id).first()
+    if not year:
+        raise HTTPException(status_code=404, detail="Academic Year not found")
+
+    effective_name = (section.section_name or section.name or "").strip()
+    if not effective_name:
+        raise HTTPException(status_code=400, detail="Section name is required")
+
+    db_section = models.Section(
+        name=effective_name,
+        section_name=effective_name,
+        year=section.year if section.year is not None else year.level,
+        academic_year_id=section.academic_year_id,
+        student_count=section.student_count,
+        independent_schedule=section.independent_schedule,
+    )
     db.add(db_section)
     db.commit()
     db.refresh(db_section)
@@ -390,8 +414,21 @@ def update_section(section_id: int, section: schemas.SectionCreate, db: Session 
     db_section = db.query(models.Section).filter(models.Section.id == section_id).first()
     if not db_section:
         raise HTTPException(status_code=404, detail="Section not found")
-    db_section.name = section.name
+
+    year = db.query(models.AcademicYear).filter(models.AcademicYear.id == section.academic_year_id).first()
+    if not year:
+        raise HTTPException(status_code=404, detail="Academic Year not found")
+
+    effective_name = (section.section_name or section.name or "").strip()
+    if not effective_name:
+        raise HTTPException(status_code=400, detail="Section name is required")
+
+    db_section.name = effective_name
+    db_section.section_name = effective_name
+    db_section.year = section.year if section.year is not None else year.level
+    db_section.academic_year_id = section.academic_year_id
     db_section.student_count = section.student_count
+    db_section.independent_schedule = section.independent_schedule
     db.commit()
     db.refresh(db_section)
     return db_section
@@ -404,6 +441,67 @@ def delete_section(section_id: int, db: Session = Depends(database.get_db)):
     db.delete(section)
     db.commit()
     return {"message": "Section deleted"}
+
+
+@router.get("/rules", response_model=schemas.SchedulingRule)
+def read_rules(
+    department_id: Optional[int] = None,
+    db: Session = Depends(database.get_db),
+):
+    query = db.query(models.SchedulingRule).filter(
+        models.SchedulingRule.department_id == department_id,
+        models.SchedulingRule.name == "default",
+    ).order_by(models.SchedulingRule.id.desc())
+    rules = query.first()
+    if rules:
+        return rules
+
+    if department_id is not None:
+        global_rules = db.query(models.SchedulingRule).filter(
+            models.SchedulingRule.department_id.is_(None),
+            models.SchedulingRule.name == "default",
+            models.SchedulingRule.is_active == True,
+        ).order_by(models.SchedulingRule.id.desc()).first()
+        if global_rules:
+            return global_rules
+
+    new_rules = models.SchedulingRule(
+        department_id=department_id,
+        name="default",
+        rules=_default_rule_payload(),
+        is_active=True,
+    )
+    db.add(new_rules)
+    db.commit()
+    db.refresh(new_rules)
+    return new_rules
+
+
+@router.put("/rules", response_model=schemas.SchedulingRule)
+def upsert_rules(
+    payload: schemas.SchedulingRuleUpdate,
+    db: Session = Depends(database.get_db),
+):
+    row = db.query(models.SchedulingRule).filter(
+        models.SchedulingRule.department_id == payload.department_id,
+        models.SchedulingRule.name == payload.name,
+    ).order_by(models.SchedulingRule.id.desc()).first()
+
+    if row:
+        row.rules = payload.rules
+        row.is_active = payload.is_active
+    else:
+        row = models.SchedulingRule(
+            department_id=payload.department_id,
+            name=payload.name,
+            rules=payload.rules,
+            is_active=payload.is_active,
+        )
+        db.add(row)
+
+    db.commit()
+    db.refresh(row)
+    return row
 
 
 

@@ -1,4 +1,5 @@
 from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, Enum, Time, CheckConstraint, Table, JSON, DateTime, UniqueConstraint
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from database import Base
 import enum
@@ -73,8 +74,11 @@ class Section(Base):
     __tablename__ = "sections"
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String) # "A", "B", "C"
+    section_name = Column(String, nullable=True) # v2 alias for name
+    year = Column(Integer, nullable=True) # v2 denormalized year level for faster reads
     academic_year_id = Column(Integer, ForeignKey("academic_years.id"))
     student_count = Column(Integer, default=60)
+    independent_schedule = Column(Boolean, default=True, nullable=False)
     
     academic_year = relationship("AcademicYear", back_populates="sections")
     timetables = relationship("Timetable", back_populates="section")
@@ -144,6 +148,22 @@ class TimeSlot(Base):
     __table_args__ = (
         CheckConstraint('end_time > start_time', name='check_timeslot_duration'),
     )
+
+
+RuleJSON = JSON().with_variant(JSONB, "postgresql")
+
+
+class SchedulingRule(Base):
+    __tablename__ = "scheduling_rules"
+    id = Column(Integer, primary_key=True, index=True)
+    department_id = Column(Integer, ForeignKey("departments.id"), nullable=True)
+    name = Column(String, default="default")
+    rules = Column(RuleJSON, default=dict)
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+    department = relationship("Department")
 
 class Timetable(Base):
     __tablename__ = "timetables"

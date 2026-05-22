@@ -159,3 +159,36 @@ def test_draft_timetables_are_treated_as_faculty_commitments():
     )
 
     assert schedule == [{"subject_id": 1, "faculty_id": 10, "timeslot_id": 102}]
+
+
+def test_duplicate_section_timetable_is_reported_as_hard_fail():
+    db = make_session()
+
+    department = models.Department(name="CSE", code="CSE")
+    db.add(department)
+    db.flush()
+
+    year = models.AcademicYear(name="Year 3", level=3, department=department)
+    section_a = models.Section(name="A", academic_year=year, section_name="A", year=3, independent_schedule=True)
+    section_b = models.Section(name="B", academic_year=year, section_name="B", year=3, independent_schedule=True)
+    slot_1 = models.TimeSlot(day="Monday", start_time=time(9, 0), end_time=time(10, 0), department_id=department.id)
+    slot_2 = models.TimeSlot(day="Tuesday", start_time=time(10, 0), end_time=time(11, 0), department_id=department.id)
+    subject = models.Subject(name="Compiler Design", code="CS301", department=department, semester=5, weekly_hours=2)
+    tt_a = models.Timetable(section=section_a, semester=5, status="ACTIVE")
+    tt_b = models.Timetable(section=section_b, semester=5, status="DRAFT")
+
+    db.add_all([year, section_a, section_b, slot_1, slot_2, subject, tt_a, tt_b])
+    db.flush()
+
+    db.add_all([
+        models.TimetableEntry(timetable=tt_a, subject=subject, timeslot=slot_1),
+        models.TimetableEntry(timetable=tt_a, subject=subject, timeslot=slot_2),
+        models.TimetableEntry(timetable=tt_b, subject=subject, timeslot=slot_1),
+        models.TimetableEntry(timetable=tt_b, subject=subject, timeslot=slot_2),
+    ])
+    db.commit()
+
+    result = validate_timetable_internal(tt_b, db)
+
+    assert result["status"] == "FAIL"
+    assert any("Section uniqueness conflict" in error for error in result["errors"])

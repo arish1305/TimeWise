@@ -25,6 +25,36 @@ DAY_ORDER = {
 }
 
 
+def _default_rules() -> Dict[str, Any]:
+    return {
+        "max_daily_subjects": 5,
+        "spread_subjects": True,
+        "allow_saturday": False,
+        "max_lab_per_day": 1,
+    }
+
+
+def _load_effective_rules(db: Session, department_id: Optional[int]) -> Dict[str, Any]:
+    if department_id is not None:
+        dept_rules = db.query(models.SchedulingRule).filter(
+            models.SchedulingRule.department_id == department_id,
+            models.SchedulingRule.name == "default",
+            models.SchedulingRule.is_active == True,
+        ).order_by(models.SchedulingRule.id.desc()).first()
+        if dept_rules and isinstance(dept_rules.rules, dict):
+            return {**_default_rules(), **dept_rules.rules}
+
+    global_rules = db.query(models.SchedulingRule).filter(
+        models.SchedulingRule.department_id.is_(None),
+        models.SchedulingRule.name == "default",
+        models.SchedulingRule.is_active == True,
+    ).order_by(models.SchedulingRule.id.desc()).first()
+    if global_rules and isinstance(global_rules.rules, dict):
+        return {**_default_rules(), **global_rules.rules}
+
+    return _default_rules()
+
+
 def _is_cbcs_subject(subject: Optional[models.Subject]) -> bool:
     if not subject:
         return False
@@ -349,10 +379,46 @@ def validate_timetable(
     tt = db.query(models.Timetable).filter(models.Timetable.id == timetable_id).first()
     if not tt:
         raise HTTPException(status_code=404, detail="Timetable not found")
-        
-    return validate_timetable_internal(tt, db)
 
-def validate_timetable_internal(timetable: models.Timetable, db: Session):
+    department_id = None
+    if tt.section and tt.section.academic_year:
+        department_id = tt.section.academic_year.department_id
+    rules = _load_effective_rules(db, department_id)
+    return validate_timetable_internal(tt, db, rules=rules)
+
+
+def _timetable_signature(timetable: models.Timetable):
+    signature = []
+    for entry in timetable.entries:
+        if entry.subject_id and entry.timeslot_id:
+            signature.append((entry.timeslot_id, entry.subject_id))
+    signature.sort()
+    return tuple(signature)
+
+
+def _is_duplicate_section_timetable(timetable: models.Timetable, db: Session) -> bool:
+    if not timetable.section or not timetable.section.academic_year_id:
+        return False
+
+    current_signature = _timetable_signature(timetable)
+    if not current_signature:
+        return False
+
+    peer_timetables = db.query(models.Timetable).join(models.Section).filter(
+        models.Timetable.id != timetable.id,
+        models.Timetable.semester == timetable.semester,
+        models.Timetable.status.in_(COMMITMENT_STATUSES),
+        models.Section.academic_year_id == timetable.section.academic_year_id,
+    ).all()
+
+    for peer in peer_timetables:
+        if _timetable_signature(peer) == current_signature:
+            return True
+    return False
+
+
+def validate_timetable_internal(timetable: models.Timetable, db: Session, rules: Optional[Dict[str, Any]] = None):
+    rules = rules or _default_rules()
     errors = []
     warnings = []
     error_slots = []
@@ -402,18 +468,23 @@ def validate_timetable_internal(timetable: models.Timetable, db: Session):
             if not _entries_can_overlap_in_section(entries):
                 errors.append("Section conflict: Multiple unrelated subjects overlap in a single timeslot.")
                 error_slots.append(ts_id)
+
+    if _is_duplicate_section_timetable(timetable, db):
+        errors.append("Section uniqueness conflict: This section timetable duplicates another section in the same year/semester.")
                 
     for subject_id, days in subject_days.items():
         for day, count in days.items():
             sub = db.query(models.Subject).get(subject_id)
-            allowed_same_day = max(2, int(getattr(sub, "continuous_hours", 1) or 1))
+            base_subject_cap = int(rules.get("max_same_subject_per_day", 2) or 2)
+            allowed_same_day = max(base_subject_cap, int(getattr(sub, "continuous_hours", 1) or 1))
             if count > allowed_same_day:
                 warnings.append(f"Uneven distribution: Subject '{sub.code if sub else subject_id}' scheduled {count} times on {day}.")
                 # Note: We aren't capturing the specific slot IDs for this warning easily here, but that's okay for now.
                 
     for fid, days in faculty_daily_load.items():
         for day, count in days.items():
-            if count > 4:
+            max_daily_faculty_load_warn = int(rules.get("max_daily_faculty_load_warn", 4) or 4)
+            if count > max_daily_faculty_load_warn:
                 fac = db.query(models.Faculty).get(fid)
                 warnings.append(f"Faculty overloaded: '{fac.name if fac else fid}' teaches {count} classes on {day}.")
                 
@@ -434,6 +505,7 @@ def generate_timetable(
             
         academic_year = section.academic_year
         department_id = academic_year.department_id
+        effective_rules = _load_effective_rules(db, department_id)
         
         # 2. Fetch Subjects (Primary Department OR Shared allowed_department_ids)
         all_subjects_for_sem = db.query(models.Subject).filter(
@@ -797,7 +869,8 @@ def generate_timetable(
             "constraints": {
                 "prior_commitments": existing_commitments,
                 "prior_commitment_entries": prior_commitment_entries,
-                "faculty_preferences": faculty_preferences
+                "faculty_preferences": faculty_preferences,
+                "rules": effective_rules,
             }
         }
         # 6. Call AI Engine
@@ -881,7 +954,7 @@ def generate_timetable(
             
             db.flush()
             
-            val_res = validate_timetable_internal(new_timetable, db)
+            val_res = validate_timetable_internal(new_timetable, db, rules=effective_rules)
             if val_res["status"] != "PASS":
                 db.rollback()
                 error_details = "; ".join(val_res["errors"])

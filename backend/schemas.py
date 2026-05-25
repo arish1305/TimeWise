@@ -87,7 +87,7 @@ class SectionWithYear(SectionBase):
 class SubjectBase(BaseModel):
     name: str
     code: str
-    department_id: int
+    department_id: Optional[int] = None
     semester: int
     subject_type: SubjectType = SubjectType.THEORY
     weekly_hours: int = 3
@@ -173,6 +173,12 @@ class TimetableEntryBase(BaseModel):
     subject_id: int
     faculty_id: Optional[int] = None
     timeslot_id: int
+    room_id: Optional[int] = None
+    position_x: Optional[int] = None
+    position_y: Optional[int] = None
+    is_manual: bool = False
+    edited_by: Optional[int] = None
+    version: int = 1
     is_locked: bool = False
     created_by: str = EntryCreator.AI
 
@@ -189,6 +195,9 @@ class TimetableBase(BaseModel):
     semester: int
     status: str = "DRAFT"
     version: int = 1
+    generated_version: Optional[int] = 0
+    edited_version: Optional[int] = 0
+    approved_version: Optional[int] = 0
 
 class Timetable(TimetableBase):
     id: int
@@ -258,6 +267,15 @@ class TimeSlot(TimeSlotBase):
     class Config:
         from_attributes = True
 
+
+class VisualBoardResponse(BaseModel):
+    department_id: int
+    semester: Optional[int] = None
+    academic_year_id: Optional[int] = None
+    time_slots: List[TimeSlot] = []
+    timetables: List[Timetable] = []
+
+
 class DepartmentScheduleBuildRequest(BaseModel):
     days: List[str] = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
     start_time: time
@@ -274,6 +292,38 @@ class ValidationResponse(BaseModel):
     warnings: List[str]
     error_slots: List[int] = []
     warning_slots: List[int] = []
+
+
+class TimetableEditRequest(BaseModel):
+    entry_id: int
+    source_slot: int
+    target_slot: int
+    target_room: Optional[int] = None
+    action: str = "move"  # move | swap | duplicate | lock | delete
+    apply: bool = True
+    timetable_id: Optional[int] = None
+
+
+class TimetableEditResponse(BaseModel):
+    status: str
+    message: str
+    validation: ValidationResponse
+    suggestions: List[Dict[str, Any]] = []
+    changed_entry_ids: List[int] = []
+
+
+class TimetableEditEvent(BaseModel):
+    id: int
+    timetable_id: int
+    entry_id: Optional[int] = None
+    event_type: str
+    payload: Dict[str, Any] = {}
+    edited_by: Optional[int] = None
+    version: int = 1
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
 
 
 class SchedulingRuleBase(BaseModel):

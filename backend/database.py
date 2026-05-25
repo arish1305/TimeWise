@@ -211,6 +211,88 @@ def migrate_scheduling_rules():
                 )
             """))
 
+
+def migrate_timetable_editing_v2():
+    if engine.dialect.name != "postgresql":
+        return
+
+    with engine.begin() as conn:
+        # Add additive columns on timetable_entries
+        for column_name, ddl in [
+            ("room_id", "ALTER TABLE timetable_entries ADD COLUMN room_id INTEGER"),
+            ("position_x", "ALTER TABLE timetable_entries ADD COLUMN position_x INTEGER"),
+            ("position_y", "ALTER TABLE timetable_entries ADD COLUMN position_y INTEGER"),
+            ("is_manual", "ALTER TABLE timetable_entries ADD COLUMN is_manual BOOLEAN DEFAULT FALSE"),
+            ("edited_by", "ALTER TABLE timetable_entries ADD COLUMN edited_by INTEGER"),
+            ("version", "ALTER TABLE timetable_entries ADD COLUMN version INTEGER DEFAULT 1"),
+        ]:
+            exists = conn.execute(text("""
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_name = 'timetable_entries'
+                  AND column_name = :column_name
+            """), {"column_name": column_name}).scalar()
+            if not exists:
+                conn.execute(text(ddl))
+
+        has_editor_fk = conn.execute(text("""
+            SELECT 1
+            FROM pg_constraint
+            WHERE conname = 'fk_timetable_entries_edited_by_user'
+              AND conrelid = 'timetable_entries'::regclass
+        """)).scalar()
+        if not has_editor_fk:
+            conn.execute(text("""
+                ALTER TABLE timetable_entries
+                ADD CONSTRAINT fk_timetable_entries_edited_by_user
+                FOREIGN KEY (edited_by) REFERENCES users(id)
+            """))
+
+        conn.execute(text("UPDATE timetable_entries SET is_manual = FALSE WHERE is_manual IS NULL"))
+        conn.execute(text("UPDATE timetable_entries SET version = 1 WHERE version IS NULL"))
+
+        # Event history table
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS timetable_edit_events (
+                id SERIAL PRIMARY KEY,
+                timetable_id INTEGER NOT NULL REFERENCES timetables(id),
+                entry_id INTEGER NULL REFERENCES timetable_entries(id),
+                event_type VARCHAR NOT NULL,
+                payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+                edited_by INTEGER NULL REFERENCES users(id),
+                version INTEGER NOT NULL DEFAULT 1,
+                created_at TIMESTAMP NOT NULL DEFAULT NOW()
+            )
+        """))
+
+        conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS idx_timetable_edit_events_timetable
+            ON timetable_edit_events(timetable_id, created_at DESC)
+        """))
+
+def migrate_timetable_versions():
+    if engine.dialect.name != "postgresql":
+        return
+
+    with engine.begin() as conn:
+        for column_name, ddl in [
+            ("generated_version", "ALTER TABLE timetables ADD COLUMN generated_version INTEGER DEFAULT 0"),
+            ("edited_version", "ALTER TABLE timetables ADD COLUMN edited_version INTEGER DEFAULT 0"),
+            ("approved_version", "ALTER TABLE timetables ADD COLUMN approved_version INTEGER DEFAULT 0"),
+        ]:
+            exists = conn.execute(text("""
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_name = 'timetables'
+                  AND column_name = :column_name
+            """), {"column_name": column_name}).scalar()
+            if not exists:
+                conn.execute(text(ddl))
+
+        conn.execute(text("UPDATE timetables SET generated_version = 0 WHERE generated_version IS NULL"))
+        conn.execute(text("UPDATE timetables SET edited_version = 0 WHERE edited_version IS NULL"))
+        conn.execute(text("UPDATE timetables SET approved_version = 0 WHERE approved_version IS NULL"))
+
 # The call to wait_for_db should be done within the application startup
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, Users, Building2, Calendar, Clock3, LogOut, NotebookTabs } from 'lucide-react';
+import { LayoutDashboard, Users, Building2, Calendar, Clock3, LogOut, NotebookTabs, Sparkles } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import AppLogo from './AppLogo';
 import { APP_NAME } from '../utils/branding';
@@ -17,6 +17,7 @@ const Sidebar = () => {
             { icon: Users, label: 'Faculty', path: '/admin/faculty' },
             { icon: NotebookTabs, label: 'Faculty Timetable', path: '/admin/faculty-timetable' },
             { icon: Calendar, label: 'Timetables', path: '/admin/timetables' },
+            { icon: Sparkles, label: 'Visual Board', path: '/admin/visual-timetables' },
         ];
 
     return (

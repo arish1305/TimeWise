@@ -174,6 +174,9 @@ class Timetable(Base):
     status = Column(String, default="DRAFT") # DRAFT, APPROVED
     is_active = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    generated_version = Column(Integer, default=0)
+    edited_version = Column(Integer, default=0)
+    approved_version = Column(Integer, default=0)
     
     section = relationship("Section", back_populates="timetables")
     entries = relationship("TimetableEntry", back_populates="timetable", cascade="all, delete-orphan")
@@ -185,6 +188,12 @@ class TimetableEntry(Base):
     subject_id = Column(Integer, ForeignKey("subjects.id"))
     faculty_id = Column(Integer, ForeignKey("faculty.id"), nullable=True)
     timeslot_id = Column(Integer, ForeignKey("timeslots.id"))
+    room_id = Column(Integer, nullable=True)
+    position_x = Column(Integer, nullable=True)
+    position_y = Column(Integer, nullable=True)
+    is_manual = Column(Boolean, default=False)
+    edited_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    version = Column(Integer, default=1)
     is_locked = Column(Boolean, default=False)
     created_by = Column(String, default=EntryCreator.AI)
     
@@ -192,3 +201,20 @@ class TimetableEntry(Base):
     subject = relationship("Subject")
     faculty = relationship("Faculty")
     timeslot = relationship("TimeSlot")
+    editor = relationship("User")
+
+
+class TimetableEditEvent(Base):
+    __tablename__ = "timetable_edit_events"
+    id = Column(Integer, primary_key=True, index=True)
+    timetable_id = Column(Integer, ForeignKey("timetables.id"), index=True)
+    entry_id = Column(Integer, ForeignKey("timetable_entries.id"), nullable=True, index=True)
+    event_type = Column(String, index=True)  # generation, move, swap, duplicate, lock, delete, repair
+    payload = Column(RuleJSON, default=dict)
+    edited_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    version = Column(Integer, default=1)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, index=True)
+
+    timetable = relationship("Timetable")
+    entry = relationship("TimetableEntry")
+    editor = relationship("User")

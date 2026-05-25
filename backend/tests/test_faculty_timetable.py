@@ -9,6 +9,9 @@ import models
 from database import Base
 from routers.timetable import (
     COMMITMENT_STATUSES,
+    _attempt_duplicate_repair,
+    _is_duplicate_section_timetable,
+    _section_similarity_score,
     _build_faculty_timetable_payload,
     _solve_timetable_locally,
     validate_timetable_internal,
@@ -161,6 +164,39 @@ def test_draft_timetables_are_treated_as_faculty_commitments():
     assert schedule == [{"subject_id": 1, "faculty_id": 10, "timeslot_id": 102}]
 
 
+def test_local_solver_spreads_subject_across_different_time_keys_when_possible():
+    schedule = _solve_timetable_locally(
+        subjects=[
+            {"id": 1, "name": "Distributed Systems", "credits": 3, "faculty_id": None},
+        ],
+        faculty=[],
+        timeslots=[
+            {"id": 1, "day": "Monday", "time": "09:00:00"},
+            {"id": 2, "day": "Monday", "time": "10:00:00"},
+            {"id": 3, "day": "Tuesday", "time": "09:00:00"},
+            {"id": 4, "day": "Tuesday", "time": "10:00:00"},
+            {"id": 5, "day": "Wednesday", "time": "09:00:00"},
+            {"id": 6, "day": "Wednesday", "time": "10:00:00"},
+        ],
+        constraints={"rules": {"spread_subjects": True}, "random_seed": 12345},
+        locked_slots=[],
+    )
+
+    chosen_slots = {entry["timeslot_id"] for entry in schedule}
+    slot_to_time = {
+        1: "09:00:00",
+        2: "10:00:00",
+        3: "09:00:00",
+        4: "10:00:00",
+        5: "09:00:00",
+        6: "10:00:00",
+    }
+    chosen_time_keys = {slot_to_time[slot_id] for slot_id in chosen_slots}
+
+    assert len(schedule) == 3
+    assert len(chosen_time_keys) >= 2
+
+
 def test_duplicate_section_timetable_is_reported_as_hard_fail():
     db = make_session()
 
@@ -192,3 +228,71 @@ def test_duplicate_section_timetable_is_reported_as_hard_fail():
 
     assert result["status"] == "FAIL"
     assert any("Section uniqueness conflict" in error for error in result["errors"])
+
+
+def test_duplicate_section_timetable_is_auto_repaired_when_free_slot_exists():
+    db = make_session()
+
+    department = models.Department(name="IT", code="IT")
+    db.add(department)
+    db.flush()
+
+    year = models.AcademicYear(name="Year 2", level=2, department=department)
+    section_a = models.Section(name="A", academic_year=year, section_name="A", year=2, independent_schedule=True)
+    section_b = models.Section(name="B", academic_year=year, section_name="B", year=2, independent_schedule=True)
+    slot_1 = models.TimeSlot(day="Monday", start_time=time(9, 0), end_time=time(10, 0), department_id=department.id)
+    slot_2 = models.TimeSlot(day="Monday", start_time=time(10, 0), end_time=time(11, 0), department_id=department.id)
+    slot_3 = models.TimeSlot(day="Tuesday", start_time=time(9, 0), end_time=time(10, 0), department_id=department.id)
+    subject_a = models.Subject(name="Math", code="M201", department=department, semester=3, weekly_hours=1)
+    subject_b = models.Subject(name="Physics", code="P201", department=department, semester=3, weekly_hours=1)
+
+    tt_active = models.Timetable(section=section_a, semester=3, status="ACTIVE")
+    tt_draft = models.Timetable(section=section_b, semester=3, status="DRAFT")
+
+    db.add_all([year, section_a, section_b, slot_1, slot_2, slot_3, subject_a, subject_b, tt_active, tt_draft])
+    db.flush()
+
+    db.add_all([
+        models.TimetableEntry(timetable=tt_active, subject=subject_a, timeslot=slot_1, is_locked=False),
+        models.TimetableEntry(timetable=tt_active, subject=subject_b, timeslot=slot_2, is_locked=False),
+        models.TimetableEntry(timetable=tt_draft, subject=subject_a, timeslot=slot_1, is_locked=False),
+        models.TimetableEntry(timetable=tt_draft, subject=subject_b, timeslot=slot_2, is_locked=False),
+    ])
+    db.commit()
+    db.refresh(tt_draft)
+
+    assert _is_duplicate_section_timetable(tt_draft, db) is True
+
+    repaired = _attempt_duplicate_repair(tt_draft, db, [slot_1, slot_2, slot_3])
+    db.flush()
+
+    assert repaired is True
+    assert _is_duplicate_section_timetable(tt_draft, db) is False
+
+
+def test_similarity_score_detects_same_slot_subject_pattern():
+    db = make_session()
+
+    department = models.Department(name="ECE", code="ECE")
+    db.add(department)
+    db.flush()
+
+    year = models.AcademicYear(name="Year 1", level=1, department=department)
+    section_a = models.Section(name="A", academic_year=year, section_name="A", year=1, independent_schedule=True)
+    section_b = models.Section(name="B", academic_year=year, section_name="B", year=1, independent_schedule=True)
+    slot = models.TimeSlot(day="Monday", start_time=time(9, 0), end_time=time(10, 0), department_id=department.id)
+    subject = models.Subject(name="Basics", code="EC101", department=department, semester=1, weekly_hours=1)
+
+    tt_active = models.Timetable(section=section_a, semester=1, status="ACTIVE")
+    tt_draft = models.Timetable(section=section_b, semester=1, status="DRAFT")
+
+    db.add_all([year, section_a, section_b, slot, subject, tt_active, tt_draft])
+    db.flush()
+
+    db.add(models.TimetableEntry(timetable=tt_active, subject=subject, timeslot=slot, is_locked=False))
+    db.add(models.TimetableEntry(timetable=tt_draft, subject=subject, timeslot=slot, is_locked=False))
+    db.commit()
+    db.refresh(tt_draft)
+
+    score = _section_similarity_score(tt_draft, db)
+    assert score > 0

@@ -6,6 +6,7 @@ import AdminDashboard from './pages/AdminDashboard';
 import Departments from './pages/Departments';
 import Faculty from './pages/Faculty';
 import Timetables from './pages/Timetables';
+import VisualTimetables from './pages/VisualTimetables';
 import FacultyTimetable from './pages/FacultyTimetable';
 import AdminFacultyTimetable from './pages/AdminFacultyTimetable';
 import Layout from './components/Layout';
@@ -59,6 +60,7 @@ function App() {
             <Route path="faculty" element={<Faculty />} />
             <Route path="faculty-timetable" element={<AdminFacultyTimetable />} />
             <Route path="timetables" element={<Timetables />} />
+            <Route path="visual-timetables" element={<VisualTimetables />} />
           </Route>
 
           <Route path="/faculty" element={

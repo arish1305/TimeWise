@@ -16,6 +16,8 @@ from database import (
     migrate_timeslot_departments,
     migrate_section_v2_fields,
     migrate_scheduling_rules,
+    migrate_timetable_editing_v2,
+    migrate_timetable_versions,
 )
 
 app = FastAPI(title="TimeWise AI Backend", version="0.1.0")
@@ -37,6 +39,8 @@ def on_startup():
         migrate_timeslot_departments()
         migrate_section_v2_fields()
         migrate_scheduling_rules()
+        migrate_timetable_editing_v2()
+        migrate_timetable_versions()
         seed()
     except Exception as e:
         logger.error(f"Startup error: {e}")

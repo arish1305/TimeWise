@@ -136,24 +136,22 @@ def _solve_timetable_locally(
     random_seed = constraints.get("random_seed")
     rng = random.Random(random_seed) if random_seed is not None else random.Random()
 
-    sorted_slots = sorted(
-        timeslots,
-        key=lambda slot: (DAY_ORDER.get(slot.get("day"), 99), str(slot.get("time", "")), slot["id"])
-    )
+    timeslots_by_id = {t["id"]: t for t in timeslots}
 
     faculty_busy = {item["id"]: set() for item in faculty}
     faculty_hours = {item["id"]: 0 for item in faculty}
     section_busy = set()
     locked_hours = {}
-    subject_day_count: Dict[int, Dict[str, int]] = {}
-    subject_time_count: Dict[int, Dict[str, int]] = {}
     prior_subjects_by_faculty_slot: Dict[int, Dict[int, List[int]]] = {}
 
     for fid, entries in prior_entries.items():
         try:
             faculty_id = int(fid)
         except (TypeError, ValueError):
-            continue
+            try:
+                faculty_id = str(fid)
+            except Exception:
+                continue
         for entry in entries or []:
             ts_id = entry.get("timeslot_id")
             subject_id = entry.get("subject_id")
@@ -165,7 +163,10 @@ def _solve_timetable_locally(
         try:
             faculty_id = int(fid)
         except (TypeError, ValueError):
-            continue
+            try:
+                faculty_id = str(fid)
+            except Exception:
+                continue
         faculty_busy.setdefault(faculty_id, set()).update(slots or [])
         faculty_hours[faculty_id] = faculty_hours.get(faculty_id, 0) + len(slots or [])
 
@@ -179,22 +180,15 @@ def _solve_timetable_locally(
         section_busy.add(timeslot_id)
         if subject_id:
             locked_hours[subject_id] = locked_hours.get(subject_id, 0) + 1
-            slot = next((item for item in sorted_slots if item["id"] == timeslot_id), None)
-            if slot:
-                subject_day_count.setdefault(subject_id, {}).setdefault(slot.get("day"), 0)
-                subject_day_count[subject_id][slot.get("day")] += 1
-                time_key = str(slot.get("time", ""))
-                subject_time_count.setdefault(subject_id, {}).setdefault(time_key, 0)
-                subject_time_count[subject_id][time_key] += 1
         if faculty_id:
             faculty_busy.setdefault(faculty_id, set()).add(timeslot_id)
             faculty_hours[faculty_id] = faculty_hours.get(faculty_id, 0) + 1
 
-    def max_hours_for(faculty_id: int) -> int:
+    def max_hours_for(faculty_id: Any) -> int:
         prefs = faculty_preferences.get(faculty_id) or faculty_preferences.get(str(faculty_id)) or {}
         return int(prefs.get("max_hours", 18) or 18)
 
-    def can_share_faculty_slot(subject: Dict[str, Any], faculty_id: int, timeslot_id: int) -> bool:
+    def can_share_faculty_slot(subject: Dict[str, Any], faculty_id: Any, timeslot_id: int) -> bool:
         if not subject.get("is_cbcs_shared"):
             return False
         committed_subjects = prior_subjects_by_faculty_slot.get(faculty_id, {}).get(timeslot_id, [])
@@ -208,49 +202,144 @@ def _solve_timetable_locally(
             return False
         return not enforce_max_hours or faculty_hours.get(faculty_id, 0) < max_hours_for(faculty_id)
 
+    def _are_consecutive(slot1: Dict[str, Any], slot2: Dict[str, Any]) -> bool:
+        if slot1.get("day") != slot2.get("day"):
+            return False
+        t1_start = slot1.get("time") or ""
+        t1_end = slot1.get("end_time") or ""
+        t2_start = slot2.get("time") or ""
+        t2_end = slot2.get("end_time") or ""
+        return (t1_end == t2_start) or (t2_end == t1_start)
+
+    def _score_slot(subject: Dict[str, Any], slot: Dict[str, Any], current_schedule: List[Dict[str, Any]]) -> float:
+        score = 0.0
+        subject_id = subject["id"]
+        faculty_id = subject.get("faculty_id")
+        slot_day = slot.get("day")
+        slot_time = slot.get("time")
+
+        subject_assigned_slots = []
+        for entry in current_schedule:
+            if entry["subject_id"] == subject_id:
+                s_slot = timeslots_by_id.get(entry["timeslot_id"])
+                if s_slot:
+                    subject_assigned_slots.append(s_slot)
+
+        faculty_assigned_slots = []
+        if faculty_id:
+            prior_commits = prior_commitments.get(faculty_id, [])
+            if not prior_commits and str(faculty_id) in prior_commitments:
+                prior_commits = prior_commitments.get(str(faculty_id), [])
+            for cid in prior_commits:
+                s_slot = timeslots_by_id.get(cid)
+                if s_slot:
+                    faculty_assigned_slots.append(s_slot)
+            for entry in current_schedule:
+                if entry.get("faculty_id") == faculty_id:
+                    s_slot = timeslots_by_id.get(entry["timeslot_id"])
+                    if s_slot:
+                        faculty_assigned_slots.append(s_slot)
+
+        section_assigned_slots = []
+        for entry in current_schedule:
+            s_slot = timeslots_by_id.get(entry["timeslot_id"])
+            if s_slot:
+                section_assigned_slots.append(s_slot)
+
+        # 1. Subject Spread
+        same_day_count = sum(1 for s in subject_assigned_slots if s.get("day") == slot_day)
+        if same_day_count > 0:
+            score -= 50.0 * same_day_count
+
+        for s in subject_assigned_slots:
+            if _are_consecutive(slot, s):
+                score -= 100.0
+
+        # 2. Period Diversity
+        same_time_count = sum(1 for s in subject_assigned_slots if s.get("time") == slot_time and s.get("day") != slot_day)
+        score -= 30.0 * same_time_count
+
+        # 3. Faculty Comfort
+        faculty_day_slots = [s for s in faculty_assigned_slots if s.get("day") == slot_day]
+        consec_before = 0
+        consec_after = 0
+        current = slot
+        while True:
+            prev = None
+            for fs in faculty_day_slots:
+                if fs.get("end_time") == current.get("time"):
+                    prev = fs
+                    break
+            if prev:
+                consec_before += 1
+                current = prev
+            else:
+                break
+        current = slot
+        while True:
+            nxt = None
+            for fs in faculty_day_slots:
+                if fs.get("time") == current.get("end_time"):
+                    nxt = fs
+                    break
+            if nxt:
+                consec_after += 1
+                current = nxt
+            else:
+                break
+        total_consec = consec_before + consec_after
+        if total_consec >= 2:
+            score -= 40.0 * (total_consec - 1)
+
+        faculty_day_load = len(faculty_day_slots)
+        if faculty_day_load > 3:
+            score -= 20.0 * (faculty_day_load - 3)
+
+        # 4. Student Comfort
+        section_day_slots = [s for s in section_assigned_slots if s.get("day") == slot_day]
+        consec_student_before = 0
+        consec_student_after = 0
+        current = slot
+        while True:
+            prev = None
+            for ss in section_day_slots:
+                if ss.get("end_time") == current.get("time"):
+                    prev = ss
+                    break
+            if prev:
+                consec_student_before += 1
+                current = prev
+            else:
+                break
+        current = slot
+        while True:
+            nxt = None
+            for ss in section_day_slots:
+                if ss.get("time") == current.get("end_time"):
+                    nxt = ss
+                    break
+            if nxt:
+                consec_student_after += 1
+                current = nxt
+            else:
+                break
+        total_student_consec = consec_student_before + consec_student_after
+        if total_student_consec >= 3:
+            score -= 30.0 * (total_student_consec - 2)
+
+        # 5. Section Uniqueness
+        score += rng.uniform(0.0, 10.0)
+
+        return score
+
     def remember(entry: Dict[str, Any], slot: Dict[str, Any]) -> None:
         subject_id = entry["subject_id"]
         faculty_id = entry.get("faculty_id")
         timeslot_id = entry["timeslot_id"]
         section_busy.add(timeslot_id)
-        subject_day_count.setdefault(subject_id, {}).setdefault(slot.get("day"), 0)
-        subject_day_count[subject_id][slot.get("day")] += 1
-        time_key = str(slot.get("time", ""))
-        subject_time_count.setdefault(subject_id, {}).setdefault(time_key, 0)
-        subject_time_count[subject_id][time_key] += 1
         if faculty_id:
             faculty_busy.setdefault(faculty_id, set()).add(timeslot_id)
             faculty_hours[faculty_id] = faculty_hours.get(faculty_id, 0) + 1
-
-    def ordered_slots_for(subject: Dict[str, Any]) -> List[Dict[str, Any]]:
-        subject_id = subject["id"]
-        randomized = list(sorted_slots)
-        rng.shuffle(randomized)
-        return sorted(
-            randomized,
-            key=lambda slot: (
-                subject_day_count.get(subject_id, {}).get(slot.get("day"), 0) if spread_subjects else 0,
-                subject_time_count.get(subject_id, {}).get(str(slot.get("time", "")), 0),
-                DAY_ORDER.get(slot.get("day"), 99),
-                str(slot.get("time", "")),
-                slot["id"],
-            )
-        )
-
-    def ordered_slots_for_group(group_subjects: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        subject_ids = [subject["id"] for subject in group_subjects]
-        randomized = list(sorted_slots)
-        rng.shuffle(randomized)
-        return sorted(
-            randomized,
-            key=lambda slot: (
-                max(subject_day_count.get(subject_id, {}).get(slot.get("day"), 0) for subject_id in subject_ids) if spread_subjects else 0,
-                max(subject_time_count.get(subject_id, {}).get(str(slot.get("time", "")), 0) for subject_id in subject_ids),
-                DAY_ORDER.get(slot.get("day"), 99),
-                str(slot.get("time", "")),
-                slot["id"],
-            )
-        )
 
     schedule: List[Dict[str, Any]] = []
 
@@ -263,74 +352,157 @@ def _solve_timetable_locally(
         else:
             core_subjects.append(subject)
 
+    # 1. Schedule Elective Groups
     for group_subjects in elective_groups.values():
         sessions_needed = max(
             max(0, int(subject.get("credits", 3) or 0) - locked_hours.get(subject["id"], 0))
             for subject in group_subjects
         )
+        
+        slots_by_day = {}
+        for slot in timeslots:
+            if slot["id"] not in section_busy:
+                day = slot.get("day", "UnknownDay")
+                if day not in slots_by_day:
+                    slots_by_day[day] = []
+                slots_by_day[day].append(slot)
+                
+        for day in slots_by_day:
+            rng.shuffle(slots_by_day[day])
+            
+        days = list(slots_by_day.keys())
+        rng.shuffle(days)
+        assigned_days_count = {day: 0 for day in days}
+        max_per_day = 1 if sessions_needed <= len(days) else 2
+        
         for _ in range(sessions_needed):
             assigned = False
-            for enforce_max_hours in (True, False):
-                for slot in ordered_slots_for_group(group_subjects):
-                    if slot["id"] in section_busy:
+            available_days_sorted = sorted(days, key=lambda d: assigned_days_count[d])
+            
+            for pass_num in range(3):
+                current_max = max_per_day if pass_num == 0 else 5
+                enforce_max_hours = pass_num < 2
+                
+                candidate_slots_with_scores = []
+                
+                for day in available_days_sorted:
+                    if assigned_days_count[day] >= current_max:
                         continue
-                    if not all(faculty_available(subject, slot["id"], enforce_max_hours) for subject in group_subjects):
-                        continue
+                        
+                    for slot in slots_by_day[day]:
+                        if slot["id"] in section_busy:
+                            continue
+                        if not all(faculty_available(subj, slot["id"], enforce_max_hours) for subj in group_subjects):
+                            continue
+                            
+                        slot_score = sum(_score_slot(subj, slot, schedule) for subj in group_subjects)
+                        candidate_slots_with_scores.append((slot, day, slot_score))
+                
+                if candidate_slots_with_scores:
+                    candidate_slots_with_scores.sort(key=lambda x: x[2], reverse=True)
+                    best_slot, best_day, best_score = candidate_slots_with_scores[0]
+                    
                     for subject in group_subjects:
                         entry = {
                             "subject_id": subject["id"],
                             "faculty_id": subject.get("faculty_id"),
-                            "timeslot_id": slot["id"],
+                            "timeslot_id": best_slot["id"],
                         }
                         schedule.append(entry)
-                        remember(entry, slot)
+                        remember(entry, best_slot)
+                    
+                    assigned_days_count[best_day] += 1
                     assigned = True
                     break
-                if assigned:
-                    break
+                    
             if not assigned:
                 break
 
+    # 2. Schedule Core Subjects
     core_subjects.sort(
         key=lambda subject: int(subject.get("credits", 3) or 0) - locked_hours.get(subject["id"], 0),
         reverse=True
     )
+    
     for subject in core_subjects:
         sessions_needed = max(0, int(subject.get("credits", 3) or 0) - locked_hours.get(subject["id"], 0))
+        
+        slots_by_day = {}
+        for slot in timeslots:
+            if slot["id"] not in section_busy:
+                day = slot.get("day", "UnknownDay")
+                if day not in slots_by_day:
+                    slots_by_day[day] = []
+                slots_by_day[day].append(slot)
+                
+        for day in slots_by_day:
+            rng.shuffle(slots_by_day[day])
+            
+        days = list(slots_by_day.keys())
+        rng.shuffle(days)
+        assigned_days_count = {day: 0 for day in days}
+        max_per_day = 1 if sessions_needed <= len(days) else 2
+        
         for _ in range(sessions_needed):
             assigned = False
-            for enforce_max_hours in (True, False):
-                for slot in ordered_slots_for(subject):
-                    if slot["id"] in section_busy:
+            available_days_sorted = sorted(days, key=lambda d: assigned_days_count[d])
+            
+            for pass_num in range(3):
+                current_max = max_per_day if pass_num == 0 else 5
+                enforce_max_hours = pass_num < 2
+                
+                candidate_slots_with_scores = []
+                
+                for day in available_days_sorted:
+                    if assigned_days_count[day] >= current_max:
                         continue
-                    if not faculty_available(subject, slot["id"], enforce_max_hours):
-                        continue
+                        
+                    for slot in slots_by_day[day]:
+                        if slot["id"] in section_busy:
+                            continue
+                        if not faculty_available(subject, slot["id"], enforce_max_hours):
+                            continue
+                            
+                        slot_score = _score_slot(subject, slot, schedule)
+                        candidate_slots_with_scores.append((slot, day, slot_score))
+                
+                if candidate_slots_with_scores:
+                    candidate_slots_with_scores.sort(key=lambda x: x[2], reverse=True)
+                    best_slot, best_day, best_score = candidate_slots_with_scores[0]
+                    
                     entry = {
                         "subject_id": subject["id"],
                         "faculty_id": subject.get("faculty_id"),
-                        "timeslot_id": slot["id"],
+                        "timeslot_id": best_slot["id"],
                     }
                     schedule.append(entry)
-                    remember(entry, slot)
+                    remember(entry, best_slot)
+                    assigned_days_count[best_day] += 1
                     assigned = True
                     break
-                if assigned:
-                    break
-
+            
+            # Fallback if cannot assign with faculty
             if not assigned:
-                for slot in ordered_slots_for(subject):
-                    if slot["id"] not in section_busy:
-                        entry = {
-                            "subject_id": subject["id"],
-                            "faculty_id": None,
-                            "timeslot_id": slot["id"],
-                        }
-                        schedule.append(entry)
-                        remember(entry, slot)
-                        assigned = True
-                        break
-            if not assigned:
-                break
+                candidate_slots_with_scores = []
+                for day in available_days_sorted:
+                    for slot in slots_by_day[day]:
+                        if slot["id"] in section_busy:
+                            continue
+                        slot_score = _score_slot(subject, slot, schedule)
+                        candidate_slots_with_scores.append((slot, day, slot_score))
+                
+                if candidate_slots_with_scores:
+                    candidate_slots_with_scores.sort(key=lambda x: x[2], reverse=True)
+                    best_slot, best_day, best_score = candidate_slots_with_scores[0]
+                    entry = {
+                        "subject_id": subject["id"],
+                        "faculty_id": None,
+                        "timeslot_id": best_slot["id"],
+                    }
+                    schedule.append(entry)
+                    remember(entry, best_slot)
+                    assigned_days_count[best_day] += 1
+                    assigned = True
 
     return schedule
 

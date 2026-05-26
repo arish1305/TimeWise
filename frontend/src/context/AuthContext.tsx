@@ -36,6 +36,10 @@ const buildUserFromToken = (token: string): AuthUser | null => {
         if (!decoded?.sub || !decoded?.role) {
             return null;
         }
+        const now = Date.now() / 1000;
+        if (decoded.exp && decoded.exp < now) {
+            return null;
+        }
         return {
             username: decoded.sub,
             role: decoded.role,

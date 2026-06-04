@@ -1,6 +1,18 @@
 import pytest
+import sys
+import importlib.util
+from pathlib import Path
 from fastapi.testclient import TestClient
-from main import app
+
+AI_ROOT = Path(__file__).resolve().parents[1]
+if str(AI_ROOT) in sys.path:
+    sys.path.remove(str(AI_ROOT))
+sys.path.insert(0, str(AI_ROOT))
+
+spec = importlib.util.spec_from_file_location("ai_engine_main_for_tests", AI_ROOT / "main.py")
+ai_main = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(ai_main)
+app = ai_main.app
 
 client = TestClient(app)
 
@@ -37,10 +49,10 @@ def _build_test_payload():
             slot_id += 1
             
     subjects = [
-        {"id": 1, "name": "DBMS", "credits": 3, "faculty_id": 10, "is_elective": False},
-        {"id": 2, "name": "OS", "credits": 3, "faculty_id": 11, "is_elective": False},
-        {"id": 3, "name": "Networks", "credits": 4, "faculty_id": 10, "is_elective": False},
-        {"id": 4, "name": "Compilers", "credits": 4, "faculty_id": 12, "is_elective": False}
+        {"id": 1, "name": "DBMS", "weekly_hours": 3, "credits": 3, "faculty_id": 10, "is_elective": False},
+        {"id": 2, "name": "OS", "weekly_hours": 3, "credits": 3, "faculty_id": 11, "is_elective": False},
+        {"id": 3, "name": "Networks", "weekly_hours": 4, "credits": 4, "faculty_id": 10, "is_elective": False},
+        {"id": 4, "name": "Compilers", "weekly_hours": 4, "credits": 4, "faculty_id": 12, "is_elective": False}
     ]
     
     faculty = [

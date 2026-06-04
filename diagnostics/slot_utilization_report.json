@@ -1,0 +1,44 @@
+[
+  {
+    "slot_id": 1,
+    "slot": "Monday 09:00:00-None",
+    "usage_percent": 100,
+    "unused_reason": []
+  },
+  {
+    "slot_id": 2,
+    "slot": "Monday 10:00:00-None",
+    "usage_percent": 0,
+    "unused_reason": [
+      "All required weekly hours already scheduled"
+    ]
+  },
+  {
+    "slot_id": 3,
+    "slot": "Tuesday 09:00:00-None",
+    "usage_percent": 0,
+    "unused_reason": [
+      "All required weekly hours already scheduled"
+    ]
+  },
+  {
+    "slot_id": 4,
+    "slot": "Tuesday 10:00:00-None",
+    "usage_percent": 100,
+    "unused_reason": []
+  },
+  {
+    "slot_id": 5,
+    "slot": "Wednesday 09:00:00-None",
+    "usage_percent": 100,
+    "unused_reason": []
+  },
+  {
+    "slot_id": 6,
+    "slot": "Wednesday 10:00:00-None",
+    "usage_percent": 0,
+    "unused_reason": [
+      "All required weekly hours already scheduled"
+    ]
+  }
+]

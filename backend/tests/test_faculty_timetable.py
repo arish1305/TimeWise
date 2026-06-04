@@ -5,17 +5,46 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+import sys
+import os
+from pathlib import Path
+
+# Add ai_engine to path so we can import scheduler_core
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(BACKEND_ROOT.parent / "ai_engine"))
+
+from scheduler_core.cp_sat_solver import CPSatSolver
 import models
 from database import Base
 from routers.timetable import (
     COMMITMENT_STATUSES,
     _attempt_duplicate_repair,
     _is_duplicate_section_timetable,
+    _timetable_signature,
     _section_similarity_score,
     _build_faculty_timetable_payload,
-    _solve_timetable_locally,
     validate_timetable_internal,
 )
+
+def _solve_timetable_locally(subjects, faculty, timeslots, constraints, locked_slots):
+    # Map 'credits' to 'weekly_hours' if any test data uses 'credits' instead of 'weekly_hours'
+    for s in subjects:
+        if "weekly_hours" not in s:
+            s["weekly_hours"] = s.get("credits") or 1
+            
+    # Normalize timeslots for the capacity check
+    for t in timeslots:
+        if "is_break" not in t:
+            t["is_break"] = False
+            
+    solver = CPSatSolver(
+        subjects=subjects,
+        faculty=faculty,
+        timeslots=timeslots,
+        constraints=constraints,
+        locked_slots=locked_slots
+    )
+    return solver.solve()
 
 
 def make_session():
@@ -228,6 +257,50 @@ def test_duplicate_section_timetable_is_reported_as_hard_fail():
 
     assert result["status"] == "FAIL"
     assert any("Section uniqueness conflict" in error for error in result["errors"])
+
+
+def test_timetable_signature_ignores_elective_and_cbcs_entries():
+    db = make_session()
+
+    department = models.Department(name="CSE2", code="CSE2")
+    db.add(department)
+    db.flush()
+
+    year = models.AcademicYear(name="Year 4", level=4, department=department)
+    section = models.Section(name="A", academic_year=year, section_name="A", year=4, independent_schedule=True)
+    slot_1 = models.TimeSlot(day="Monday", start_time=time(9, 0), end_time=time(10, 0), department_id=department.id)
+    slot_2 = models.TimeSlot(day="Tuesday", start_time=time(10, 0), end_time=time(11, 0), department_id=department.id)
+    elective = models.Subject(
+        name="Open Elective",
+        code="OE401",
+        department=department,
+        semester=7,
+        weekly_hours=1,
+        is_elective=True,
+        elective_group_id="OE",
+    )
+    cbcs = models.Subject(
+        name="Shared CBCS",
+        code="CB401",
+        department=department,
+        semester=7,
+        weekly_hours=1,
+        allowed_department_ids=[999],
+    )
+    regular = models.Subject(name="Compiler", code="CS401", department=department, semester=7, weekly_hours=1)
+    timetable = models.Timetable(section=section, semester=7, status="DRAFT")
+
+    db.add_all([year, section, slot_1, slot_2, elective, cbcs, regular, timetable])
+    db.flush()
+    db.add_all([
+        models.TimetableEntry(timetable=timetable, subject=elective, timeslot=slot_1),
+        models.TimetableEntry(timetable=timetable, subject=cbcs, timeslot=slot_1),
+        models.TimetableEntry(timetable=timetable, subject=regular, timeslot=slot_2),
+    ])
+    db.commit()
+    db.refresh(timetable)
+
+    assert _timetable_signature(timetable) == ((slot_2.id, regular.id),)
 
 
 def test_duplicate_section_timetable_is_auto_repaired_when_free_slot_exists():

@@ -234,3 +234,10 @@ def optimize_schedule(request: OptimizationRequest):
         "candidate_scores": [c["objective_value"] for c in candidates],
         "constraint_summary": constraint_summary
     }
+
+@app.get("/")
+def root():
+    return {
+        "status": "healthy",
+        "service": "TimeWise AI Engine"
+    }

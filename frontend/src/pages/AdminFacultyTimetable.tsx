@@ -3,6 +3,7 @@ import { Calendar, Download, RefreshCw, Search, Users } from 'lucide-react';
 import api from '../api/axios';
 import { downloadAllFacultyTimetablesZip, downloadFacultyTimetablePdf } from '../utils/pdfExport';
 import AppLogo from '../components/AppLogo';
+import { formatTime12Hour } from '../utils/timeFormat';
 
 interface FacultyOption {
     id: number;
@@ -158,14 +159,6 @@ const AdminFacultyTimetable = () => {
         entryMap[key].push(entry);
     });
 
-    const formatTime = (time?: string | null) => {
-        if (!time) {
-            return '-';
-        }
-        const [hour, minute] = time.split(':');
-        return `${parseInt(hour)}:${minute}`;
-    };
-
     return (
         <div className="animate-fade-in">
             <div style={{ marginBottom: '2rem', display: 'flex', alignItems: 'center', gap: '1rem' }}>
@@ -264,7 +257,7 @@ const AdminFacultyTimetable = () => {
                                             const [start, end] = range.split('-');
                                             return (
                                                 <th key={range} style={{ textAlign: 'left', padding: '0.85rem', minWidth: '180px' }}>
-                                                    {formatTime(start)} - {formatTime(end)}
+                                                    {formatTime12Hour(start)} - {formatTime12Hour(end)}
                                                 </th>
                                             );
                                         })}

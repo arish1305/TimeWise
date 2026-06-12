@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, Enum, Time, CheckConstraint, Table, JSON, DateTime, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, Enum, Time, CheckConstraint, Table, JSON, DateTime, UniqueConstraint, Index
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from database import Base
@@ -26,6 +26,11 @@ class SubjectType(str, enum.Enum):
 class EntryCreator(str, enum.Enum):
     ADMIN = "ADMIN"
     AI = "AI"
+
+class FacultyAvailabilityStatus(str, enum.Enum):
+    AVAILABLE = "AVAILABLE"
+    PREFERRED = "PREFERRED"
+    UNAVAILABLE = "UNAVAILABLE"
 
 # Association for Many-to-Many: Faculty <-> Departments (if teaching across departments)
 # For now, we keep 1-to-many as primary, but prompt says "assign faculty to one or more departments".
@@ -120,6 +125,7 @@ class Faculty(Base):
     user = relationship("User", back_populates="faculty_profile")
     departments = relationship("Department", secondary=faculty_department_association, back_populates="faculty")
     qualified_subjects = relationship("FacultySubjectAssignment", back_populates="faculty")
+    availability_slots = relationship("FacultyAvailability", back_populates="faculty", cascade="all, delete-orphan")
 
 class FacultySubjectAssignment(Base):
     """Mapping: Which Faculty handles which Subject (and potentially for which Section/Year if specific)"""
@@ -148,6 +154,27 @@ class TimeSlot(Base):
     __table_args__ = (
         CheckConstraint('end_time > start_time', name='check_timeslot_duration'),
     )
+
+    faculty_availability = relationship("FacultyAvailability", back_populates="timeslot", cascade="all, delete-orphan")
+
+
+class FacultyAvailability(Base):
+    __tablename__ = "faculty_availability"
+    __table_args__ = (
+        UniqueConstraint("faculty_id", "timeslot_id", name="uq_faculty_availability_faculty_timeslot"),
+        Index("idx_faculty_availability_faculty_id", "faculty_id"),
+        Index("idx_faculty_availability_timeslot_id", "timeslot_id"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    faculty_id = Column(Integer, ForeignKey("faculty.id"), nullable=False)
+    timeslot_id = Column(Integer, ForeignKey("timeslots.id"), nullable=False)
+    status = Column(String, default=FacultyAvailabilityStatus.AVAILABLE.value, nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+    faculty = relationship("Faculty", back_populates="availability_slots")
+    timeslot = relationship("TimeSlot", back_populates="faculty_availability")
 
 
 RuleJSON = JSON().with_variant(JSONB, "postgresql")

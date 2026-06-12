@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import api from '../api/axios';
 import { Plus, Edit2, Trash2, User, BookOpen, Check, X, Upload, Download } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { formatTimeRange12Hour } from '../utils/timeFormat';
 
 interface Subject {
     id: number;
@@ -56,6 +57,17 @@ interface BulkFacultyRow {
     department_codes: string;
 }
 
+type AvailabilityStatus = 'AVAILABLE' | 'PREFERRED' | 'UNAVAILABLE';
+
+interface FacultyAvailabilityEntry {
+    timeslot_id: number;
+    status: AvailabilityStatus;
+    day: string;
+    start_time: string;
+    end_time: string;
+    department_id?: number | null;
+}
+
 const FacultyManager = () => {
     const [facultyList, setFacultyList] = useState<Faculty[]>([]);
     const [showForm, setShowForm] = useState(false);
@@ -71,6 +83,9 @@ const FacultyManager = () => {
     const [availableDepartments, setAvailableDepartments] = useState<Department[]>([]);
     const [subjectAssignments, setSubjectAssignments] = useState<SubjectAssignment[]>([]);
     const [selectedYear, setSelectedYear] = useState<number | null>(null);
+    const [availabilityEntries, setAvailabilityEntries] = useState<FacultyAvailabilityEntry[]>([]);
+    const [availabilityLoading, setAvailabilityLoading] = useState(false);
+    const [availabilitySavingKey, setAvailabilitySavingKey] = useState<string | null>(null);
 
     const [formData, setFormData] = useState({
         name: '',
@@ -287,6 +302,19 @@ const FacultyManager = () => {
         } catch (err) { console.error(err); }
     };
 
+    const fetchFacultyAvailability = async (facultyId: number) => {
+        setAvailabilityLoading(true);
+        try {
+            const res = await api.get(`/faculty/${facultyId}/availability`);
+            setAvailabilityEntries(res.data.entries || []);
+        } catch (err) {
+            console.error("Failed to fetch faculty availability", err);
+            setAvailabilityEntries([]);
+        } finally {
+            setAvailabilityLoading(false);
+        }
+    };
+
     const openSubjectModal = (fac: Faculty) => {
         setSelectedFaculty(fac);
         setSelectedYear(null);
@@ -295,7 +323,46 @@ const FacultyManager = () => {
             section_ids: qs.section_ids || []
         })) || [];
         setSubjectAssignments(existing);
+        fetchFacultyAvailability(fac.id);
         setShowSubjectModal(true);
+    };
+
+    const cycleAvailabilityStatus = (status: AvailabilityStatus): AvailabilityStatus => {
+        if (status === 'AVAILABLE') return 'PREFERRED';
+        if (status === 'PREFERRED') return 'UNAVAILABLE';
+        return 'AVAILABLE';
+    };
+
+    const availabilityCellStatus = (entries: FacultyAvailabilityEntry[]): AvailabilityStatus => {
+        if (entries.some(entry => entry.status === 'UNAVAILABLE')) return 'UNAVAILABLE';
+        if (entries.some(entry => entry.status === 'PREFERRED')) return 'PREFERRED';
+        return 'AVAILABLE';
+    };
+
+    const updateAvailabilityCell = async (cellEntries: FacultyAvailabilityEntry[], cellKey: string) => {
+        if (!selectedFaculty || cellEntries.length === 0) return;
+        const nextStatus = cycleAvailabilityStatus(availabilityCellStatus(cellEntries));
+        const updates = cellEntries.map(entry => ({
+            timeslot_id: entry.timeslot_id,
+            status: nextStatus
+        }));
+
+        setAvailabilityEntries(prev => prev.map(entry => (
+            updates.some(update => update.timeslot_id === entry.timeslot_id)
+                ? { ...entry, status: nextStatus }
+                : entry
+        )));
+
+        setAvailabilitySavingKey(cellKey);
+        try {
+            await api.post(`/faculty/${selectedFaculty.id}/availability`, { entries: updates });
+        } catch (err: any) {
+            console.error("Failed to update faculty availability", err);
+            alert(err.response?.data?.detail || "Failed to update availability");
+            fetchFacultyAvailability(selectedFaculty.id);
+        } finally {
+            setAvailabilitySavingKey(null);
+        }
     };
 
     const toggleSubjectSelection = (subId: number) => {
@@ -342,6 +409,20 @@ const FacultyManager = () => {
     const filteredSections = selectedYear
         ? availableSections.filter(sec => sec.academic_year_id === selectedYear)
         : availableSections;
+    const availabilityDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+    const availabilityRows = Array.from(
+        new Map(
+            availabilityEntries
+                .filter(entry => availabilityDays.includes(entry.day))
+                .map(entry => [`${entry.start_time}-${entry.end_time}`, { start_time: entry.start_time, end_time: entry.end_time }])
+        ).values()
+    ).sort((a, b) => a.start_time.localeCompare(b.start_time));
+
+    const availabilityStyles: Record<AvailabilityStatus, { label: string; background: string; color: string; border: string }> = {
+        AVAILABLE: { label: 'Available', background: '#f8fafc', color: '#475569', border: '#e2e8f0' },
+        PREFERRED: { label: 'Preferred', background: '#dcfce7', color: '#166534', border: '#86efac' },
+        UNAVAILABLE: { label: 'Unavailable', background: '#fee2e2', color: '#991b1b', border: '#fecaca' },
+    };
 
     return (
         <div>
@@ -612,6 +693,96 @@ const FacultyManager = () => {
                                             );
                                         })}
                                     </div>
+                                </div>
+
+                                <div style={{ marginBottom: '1.5rem', padding: '1rem', background: 'white', border: '1px solid var(--border-color)', borderRadius: '8px' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', alignItems: 'flex-start', marginBottom: '0.75rem' }}>
+                                        <div>
+                                            <div style={{ fontSize: '0.95rem', fontWeight: 700 }}>Availability Grid</div>
+                                            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                                                Click a cell to cycle Available → Preferred → Unavailable.
+                                            </div>
+                                        </div>
+                                        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', fontSize: '0.75rem' }}>
+                                            {Object.entries(availabilityStyles).map(([status, style]) => (
+                                                <span key={status} style={{
+                                                    padding: '0.25rem 0.5rem',
+                                                    borderRadius: '999px',
+                                                    background: style.background,
+                                                    color: style.color,
+                                                    border: `1px solid ${style.border}`,
+                                                    fontWeight: 700
+                                                }}>
+                                                    {style.label}
+                                                </span>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    {availabilityLoading ? (
+                                        <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Loading availability...</div>
+                                    ) : availabilityRows.length === 0 ? (
+                                        <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', fontStyle: 'italic' }}>
+                                            No department time slots found for this faculty yet.
+                                        </div>
+                                    ) : (
+                                        <div style={{ overflowX: 'auto' }}>
+                                            <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0.35rem', minWidth: 620 }}>
+                                                <thead>
+                                                    <tr>
+                                                        <th style={{ textAlign: 'left', fontSize: '0.75rem', color: 'var(--text-secondary)', width: 130 }}>Period</th>
+                                                        {availabilityDays.map(day => (
+                                                            <th key={day} style={{ textAlign: 'center', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{day.slice(0, 3)}</th>
+                                                        ))}
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {availabilityRows.map(row => (
+                                                        <tr key={`${row.start_time}-${row.end_time}`}>
+                                                            <td style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                                                                {formatTimeRange12Hour(row.start_time, row.end_time)}
+                                                            </td>
+                                                            {availabilityDays.map(day => {
+                                                                const cellEntries = availabilityEntries.filter(entry =>
+                                                                    entry.day === day &&
+                                                                    entry.start_time === row.start_time &&
+                                                                    entry.end_time === row.end_time
+                                                                );
+                                                                const status = availabilityCellStatus(cellEntries);
+                                                                const style = availabilityStyles[status];
+                                                                const cellKey = `${day}-${row.start_time}-${row.end_time}`;
+                                                                const disabled = cellEntries.length === 0 || availabilitySavingKey === cellKey;
+                                                                return (
+                                                                    <td key={cellKey}>
+                                                                        <button
+                                                                            type="button"
+                                                                            disabled={disabled}
+                                                                            onClick={() => updateAvailabilityCell(cellEntries, cellKey)}
+                                                                            title={cellEntries.length > 1 ? `${cellEntries.length} department slots` : style.label}
+                                                                            style={{
+                                                                                width: '100%',
+                                                                                minHeight: 38,
+                                                                                borderRadius: 8,
+                                                                                border: `1.5px solid ${style.border}`,
+                                                                                background: disabled && cellEntries.length === 0 ? '#f1f5f9' : style.background,
+                                                                                color: style.color,
+                                                                                cursor: disabled ? 'not-allowed' : 'pointer',
+                                                                                fontSize: '0.72rem',
+                                                                                fontWeight: 800,
+                                                                                opacity: availabilitySavingKey === cellKey ? 0.65 : 1
+                                                                            }}
+                                                                        >
+                                                                            {cellEntries.length === 0 ? '-' : style.label}
+                                                                        </button>
+                                                                    </td>
+                                                                );
+                                                            })}
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    )}
                                 </div>
 
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>

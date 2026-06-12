@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import api from '../api/axios';
 import { Plus, Trash2, Edit2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { formatTimeRange12Hour } from '../utils/timeFormat';
 
 interface TimeSlot {
     id: number;
@@ -158,7 +159,7 @@ const TimeSlots = () => {
                                 <tr key={slot.id} style={{ borderBottom: '1px solid var(--border-light)' }}>
                                     <td style={{ padding: '1rem' }}>{slot.day}</td>
                                     <td style={{ padding: '1rem', fontFamily: 'monospace', fontWeight: 600 }}>
-                                        {slot.start_time.substring(0, 5)} - {slot.end_time.substring(0, 5)}
+                                        {formatTimeRange12Hour(slot.start_time, slot.end_time)}
                                     </td>
                                     <td style={{ padding: '1rem' }}>{slot.label || '-'}</td>
                                     <td style={{ padding: '1rem' }}>

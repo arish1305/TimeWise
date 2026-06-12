@@ -19,6 +19,7 @@ router = APIRouter(
 logger = logging.getLogger(__name__)
 
 COMMITMENT_STATUSES = ("DRAFT", "ACTIVE", "APPROVED", "GENERATED", "EDITED")
+APPROVED_COMMITMENT_STATUSES = ("APPROVED",)
 DAY_ORDER = {
     "Monday": 1,
     "Tuesday": 2,
@@ -122,6 +123,16 @@ def _entries_can_overlap_in_section(entries: List[models.TimetableEntry]) -> boo
             return False
         group_keys.add(group_key)
     return len(group_keys) == 1
+
+
+def _is_faculty_unavailable_for_slot(db: Session, faculty_id: Optional[int], slot_id: Optional[int]) -> bool:
+    if not faculty_id or not slot_id:
+        return False
+    return db.query(models.FacultyAvailability.id).filter(
+        models.FacultyAvailability.faculty_id == faculty_id,
+        models.FacultyAvailability.timeslot_id == slot_id,
+        models.FacultyAvailability.status == models.FacultyAvailabilityStatus.UNAVAILABLE.value,
+    ).first() is not None
 
 
 def _solve_timetable_locally(
@@ -228,6 +239,8 @@ def _is_faculty_conflict_for_slot(
 ) -> bool:
     if not faculty_id:
         return False
+    if _is_faculty_unavailable_for_slot(db, faculty_id, slot_id):
+        return True
 
     conflicts = db.query(models.TimetableEntry).join(models.Timetable).filter(
         models.Timetable.id != timetable_id,
@@ -447,6 +460,59 @@ def _build_peer_timetable_payload(
     return payload
 
 
+def load_faculty_commitments(
+    db: Session,
+    faculty_ids: Optional[List[int]] = None,
+    exclude_timetable_id: Optional[int] = None,
+) -> Dict[int, List[int]]:
+    query = db.query(models.TimetableEntry).join(models.Timetable).filter(
+        models.Timetable.status.in_(APPROVED_COMMITMENT_STATUSES),
+        models.TimetableEntry.faculty_id.isnot(None),
+    )
+    if faculty_ids is not None:
+        if not faculty_ids:
+            return {}
+        query = query.filter(models.TimetableEntry.faculty_id.in_(faculty_ids))
+    if exclude_timetable_id is not None:
+        query = query.filter(models.Timetable.id != exclude_timetable_id)
+
+    commitments: Dict[int, List[int]] = {}
+    for entry in query.all():
+        commitments.setdefault(entry.faculty_id, [])
+        if entry.timeslot_id not in commitments[entry.faculty_id]:
+            commitments[entry.faculty_id].append(entry.timeslot_id)
+    return commitments
+
+
+def _load_faculty_availability(
+    db: Session,
+    faculty_ids: List[int],
+    timeslot_ids: Optional[List[int]] = None,
+) -> Dict[int, Dict[str, List[int]]]:
+    availability = {
+        faculty_id: {"preferred_slots": [], "unavailable_slots": []}
+        for faculty_id in faculty_ids
+    }
+    if not faculty_ids:
+        return availability
+
+    query = db.query(models.FacultyAvailability).filter(
+        models.FacultyAvailability.faculty_id.in_(faculty_ids)
+    )
+    if timeslot_ids is not None:
+        if not timeslot_ids:
+            return availability
+        query = query.filter(models.FacultyAvailability.timeslot_id.in_(timeslot_ids))
+
+    for row in query.all():
+        if row.status == models.FacultyAvailabilityStatus.PREFERRED.value:
+            availability.setdefault(row.faculty_id, {"preferred_slots": [], "unavailable_slots": []})["preferred_slots"].append(row.timeslot_id)
+        elif row.status == models.FacultyAvailabilityStatus.UNAVAILABLE.value:
+            availability.setdefault(row.faculty_id, {"preferred_slots": [], "unavailable_slots": []})["unavailable_slots"].append(row.timeslot_id)
+
+    return availability
+
+
 def _faculty_can_take_slot_for_entry(
     timetable: models.Timetable,
     entry: models.TimetableEntry,
@@ -455,6 +521,8 @@ def _faculty_can_take_slot_for_entry(
 ) -> bool:
     if not entry.faculty_id:
         return True
+    if _is_faculty_unavailable_for_slot(db, entry.faculty_id, candidate_slot_id):
+        return False
 
     conflicting_entries = db.query(models.TimetableEntry).join(models.Timetable).filter(
         models.Timetable.id != timetable.id,
@@ -573,10 +641,25 @@ def validate_timetable_internal(timetable: models.Timetable, db: Session, rules:
     ).all()
     
     faculty_slots = {}
+    approved_faculty_slots = {}
     for e in other_entries:
         if e.faculty_id:
             faculty_slots.setdefault(e.faculty_id, {}).setdefault(e.timeslot_id, []).append(e)
+            if e.timetable and e.timetable.status in APPROVED_COMMITMENT_STATUSES:
+                approved_faculty_slots.setdefault(e.faculty_id, {}).setdefault(e.timeslot_id, []).append(e)
             
+    current_faculty_ids = sorted({entry.faculty_id for entry in timetable.entries if entry.faculty_id})
+    current_timeslot_ids = sorted({entry.timeslot_id for entry in timetable.entries if entry.timeslot_id})
+    unavailable_by_faculty: Dict[int, set] = {}
+    if current_faculty_ids and current_timeslot_ids:
+        availability_rows = db.query(models.FacultyAvailability).filter(
+            models.FacultyAvailability.faculty_id.in_(current_faculty_ids),
+            models.FacultyAvailability.timeslot_id.in_(current_timeslot_ids),
+            models.FacultyAvailability.status == models.FacultyAvailabilityStatus.UNAVAILABLE.value,
+        ).all()
+        for row in availability_rows:
+            unavailable_by_faculty.setdefault(row.faculty_id, set()).add(row.timeslot_id)
+
     subject_days = {}
     faculty_daily_load = {}
     section_slots = {}
@@ -587,11 +670,23 @@ def validate_timetable_internal(timetable: models.Timetable, db: Session, rules:
 
             
         if entry.faculty_id:
+            if entry.timeslot_id in unavailable_by_faculty.get(entry.faculty_id, set()):
+                fac = db.query(models.Faculty).get(entry.faculty_id)
+                errors.append(
+                    f"Faculty availability violation: {fac.name if fac else entry.faculty_id} is unavailable at {ts.day} {ts.start_time}."
+                )
+                error_slots.append(entry.timeslot_id)
+
             if entry.faculty_id in faculty_slots and entry.timeslot_id in faculty_slots[entry.faculty_id]:
                 conflicting_entries = faculty_slots[entry.faculty_id][entry.timeslot_id]
                 if not all(_entries_share_cbcs_session(entry, existing) for existing in conflicting_entries):
                     fac = db.query(models.Faculty).get(entry.faculty_id)
-                    errors.append(f"Faculty conflict: {fac.name if fac else ''} booked at {ts.day} {ts.start_time}.")
+                    if entry.timeslot_id in approved_faculty_slots.get(entry.faculty_id, {}):
+                        errors.append(
+                            f"Faculty commitment conflict: {fac.name if fac else ''} already has an approved timetable at {ts.day} {ts.start_time}."
+                        )
+                    else:
+                        errors.append(f"Faculty conflict: {fac.name if fac else ''} booked at {ts.day} {ts.start_time}.")
                     error_slots.append(entry.timeslot_id)
             faculty_slots.setdefault(entry.faculty_id, {}).setdefault(entry.timeslot_id, []).append(entry)
             
@@ -944,10 +1039,12 @@ def generate_timetable(
                 "is_cbcs_shared": _is_cbcs_subject(s),
             })
 
-        faculty_db = db.query(models.Faculty).filter(models.Faculty.id.in_(faculty_ids)).all()
+        faculty_id_list = sorted(faculty_ids)
+        faculty_db = db.query(models.Faculty).filter(models.Faculty.id.in_(faculty_id_list)).all()
         faculty_payload = [{"id": f.id, "name": f.name} for f in faculty_db]
         timeslots_db_all = _query_department_timeslots(db, department_id, include_breaks=True).all()
         timeslots_payload = [{"id": t.id, "day": t.day, "time": str(t.start_time), "end_time": str(t.end_time), "is_break": t.is_break} for t in timeslots_db_all]
+        timeslot_ids = [t.id for t in timeslots_db_all]
         locked_hours_by_subject = {}
         for locked in locked_slots_payload:
             sid = locked.get("subject_id")
@@ -974,6 +1071,12 @@ def generate_timetable(
                     "subject_id": e.subject_id,
                 })
         
+        faculty_availability = _load_faculty_availability(db, faculty_id_list, timeslot_ids)
+        approved_commitments = load_faculty_commitments(
+            db=db,
+            faculty_ids=faculty_id_list,
+            exclude_timetable_id=new_timetable.id,
+        )
         faculty_preferences = {f.id: {"max_hours": f.max_hours_per_week, "preferred_slots": f.preferred_slots} for f in faculty_db}
         peer_timetables_payload = _build_peer_timetable_payload(
             section=section,
@@ -991,6 +1094,8 @@ def generate_timetable(
             "constraints": {
                 "prior_commitments": existing_commitments,
                 "prior_commitment_entries": prior_commitment_entries,
+                "approved_commitments": approved_commitments,
+                "faculty_availability": faculty_availability,
                 "faculty_preferences": faculty_preferences,
                 "rules": effective_rules,
                 "peer_timetables": peer_timetables_payload,
@@ -1004,7 +1109,7 @@ def generate_timetable(
         base_random_seed = random.SystemRandom().randint(1, 1_000_000_000)
         payload["constraints"]["random_seed"] = base_random_seed
         logger.info(
-            "AI payload prepared: section_id=%s, semester=%s, subjects=%s, faculty=%s, teaching_slots=%s, gross_required=%s, net_required=%s, locked_entries=%s, unique_locked_slots=%s, prior_commitment_faculty=%s, peer_timetables=%s, seed=%s",
+            "AI payload prepared: section_id=%s, semester=%s, subjects=%s, faculty=%s, teaching_slots=%s, gross_required=%s, net_required=%s, locked_entries=%s, unique_locked_slots=%s, prior_commitment_faculty=%s, approved_commitment_faculty=%s, peer_timetables=%s, seed=%s",
             section.id,
             request.semester,
             len(subjects_payload),
@@ -1015,9 +1120,20 @@ def generate_timetable(
             len(locked_slots_payload),
             len(locked_slot_ids),
             len(existing_commitments),
+            len(approved_commitments),
             len(peer_timetables_payload),
             base_random_seed,
         )
+        for faculty in faculty_db:
+            availability = faculty_availability.get(faculty.id, {})
+            logger.info(
+                "Faculty availability summary before solve: faculty_id=%s, name=%s, preferred=%s, unavailable=%s, commitments=%s",
+                faculty.id,
+                faculty.name,
+                len(availability.get("preferred_slots", [])),
+                len(availability.get("unavailable_slots", [])),
+                len(existing_commitments.get(faculty.id, [])),
+            )
 
         # 6. Call AI Engine - Orchestration Only, NO local fallbacks
         import urllib.request
@@ -1072,6 +1188,26 @@ def generate_timetable(
                     subject_coverage.get("unmet_hours"),
                     subject_coverage.get("over_scheduled_hours"),
                 )
+        scheduled_slots_by_faculty: Dict[int, set] = {}
+        for item in schedule:
+            item_faculty_id = item.get("faculty_id")
+            if item_faculty_id:
+                scheduled_slots_by_faculty.setdefault(item_faculty_id, set()).add(item.get("timeslot_id"))
+        for faculty in faculty_db:
+            scheduled_slots = scheduled_slots_by_faculty.get(faculty.id, set())
+            availability = faculty_availability.get(faculty.id, {})
+            preferred_slots = set(availability.get("preferred_slots", []))
+            unavailable_slots = set(availability.get("unavailable_slots", []))
+            commitment_slots = set(existing_commitments.get(faculty.id, []))
+            logger.info(
+                "Faculty utilization after solve: faculty_id=%s, name=%s, preferred_used=%s/%s, unavailable_violations=%s, commitment_violations=%s",
+                faculty.id,
+                faculty.name,
+                len(scheduled_slots & preferred_slots),
+                len(preferred_slots),
+                len(scheduled_slots & unavailable_slots),
+                len(scheduled_slots & commitment_slots),
+            )
 
         # 7. Apply the schedule directly to the database
         section_entries_by_slot = {

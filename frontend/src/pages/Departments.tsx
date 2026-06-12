@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import api from '../api/axios';
 import { Plus, ChevronRight, ChevronDown, Trash2, Layers, Users, Edit2, BookOpen } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { formatTime12Hour } from '../utils/timeFormat';
 
 // Types
 interface Section { id: number; name: string; student_count: number; academic_year_id: number; }
@@ -538,7 +539,7 @@ const Departments = () => {
                                                                                 border: isSelected ? '1px solid var(--primary-600)' : '1px solid #cbd5e1'
                                                                             }}
                                                                         >
-                                                                            {t.day.substring(0, 3)} {t.start_time.substring(0, 5)}
+                                                                            {t.day.substring(0, 3)} {formatTime12Hour(t.start_time)}
                                                                         </div>
                                                                     )
                                                                 })

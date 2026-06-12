@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Calendar, Clock3, GraduationCap } from 'lucide-react';
 import api from '../api/axios';
 import AppLogo from '../components/AppLogo';
+import { formatTime12Hour } from '../utils/timeFormat';
 
 interface FacultyTimetableEntry {
     timetable_id: number;
@@ -74,14 +75,6 @@ const FacultyTimetable = () => {
         entryMap[key].push(entry);
     });
 
-    const formatTime = (time?: string | null) => {
-        if (!time) {
-            return '-';
-        }
-        const [hour, minute] = time.split(':');
-        return `${parseInt(hour)}:${minute}`;
-    };
-
     return (
         <div className="animate-fade-in">
             <div style={{ marginBottom: '2rem', display: 'flex', alignItems: 'center', gap: '1rem' }}>
@@ -136,7 +129,7 @@ const FacultyTimetable = () => {
                                     const [start, end] = range.split('-');
                                     return (
                                         <th key={range} style={{ textAlign: 'left', padding: '0.85rem', minWidth: '180px' }}>
-                                            {formatTime(start)} - {formatTime(end)}
+                                            {formatTime12Hour(start)} - {formatTime12Hour(end)}
                                         </th>
                                     );
                                 })}

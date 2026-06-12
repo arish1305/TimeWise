@@ -3,6 +3,7 @@ import api from '../api/axios';
 import { Plus, ChevronRight, ChevronDown, Trash2, Layers, Users, Edit2, BookOpen } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { formatTime12Hour } from '../utils/timeFormat';
+import TimePicker12 from '../components/TimePicker12';
 
 // Types
 interface Section { id: number; name: string; student_count: number; academic_year_id: number; }
@@ -434,12 +435,9 @@ const Departments = () => {
                                                     return (
                                                         <div key={key}>
                                                             <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>{label}</label>
-                                                            <input
-                                                                type="time"
-                                                                className="input-field"
+                                                            <TimePicker12
                                                                 value={(form as any)[key]}
-                                                                onChange={e => setScheduleForms(prev => ({ ...prev, [dept.id]: { ...form, [key]: e.target.value } }))}
-                                                                style={{ width: '100%' }}
+                                                                onChange={value => setScheduleForms(prev => ({ ...prev, [dept.id]: { ...form, [key]: value } }))}
                                                             />
                                                         </div>
                                                     );

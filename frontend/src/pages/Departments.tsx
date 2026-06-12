@@ -26,15 +26,35 @@ const Departments = () => {
 
     const [showYearForm, setShowYearForm] = useState<number | null>(null); // deptId
     const [editingYearId, setEditingYearId] = useState<number | null>(null);
-    const [newYear, setNewYear] = useState({ name: '', level: 1 });
+    const [newYear, setNewYear] = useState<{ name: string; level: number | ''; }>({ name: '', level: '' });
 
     const [showSectionForm, setShowSectionForm] = useState<number | null>(null); // yearId
     const [editingSectionId, setEditingSectionId] = useState<number | null>(null);
-    const [newSection, setNewSection] = useState({ name: '', student_count: 60 });
+    const [newSection, setNewSection] = useState<{ name: string; student_count: number | ''; }>({ name: '', student_count: '' });
 
     const [showSubjectForm, setShowSubjectForm] = useState<number | null>(null); // deptId
     const [editingSubjectId, setEditingSubjectId] = useState<number | null>(null);
-    const [newSubject, setNewSubject] = useState({ name: '', code: '', semester: 1, weekly_hours: 3, continuous_hours: 1, manual_timeslot_ids: [] as number[], is_elective: false, elective_group_id: '', allowed_department_ids: [] as number[] });
+    const [newSubject, setNewSubject] = useState<{
+        name: string;
+        code: string;
+        semester: number | '';
+        weekly_hours: number | '';
+        continuous_hours: number | '';
+        manual_timeslot_ids: number[];
+        is_elective: boolean;
+        elective_group_id: string;
+        allowed_department_ids: number[];
+    }>({
+        name: '',
+        code: '',
+        semester: '',
+        weekly_hours: '',
+        continuous_hours: '',
+        manual_timeslot_ids: [],
+        is_elective: false,
+        elective_group_id: '',
+        allowed_department_ids: []
+    });
     const [departmentSlots, setDepartmentSlots] = useState<Record<number, TimeSlot[]>>({});
     const [buildingScheduleDept, setBuildingScheduleDept] = useState<number | null>(null);
     const [scheduleForms, setScheduleForms] = useState<Record<number, {
@@ -190,11 +210,21 @@ const Departments = () => {
     };
 
     const saveYear = async (deptId: number) => {
+        const levelNum = Number(newYear.level);
+        if (newYear.level === '' || isNaN(levelNum)) {
+            alert("Year Level is required.");
+            return;
+        }
         try {
+            const payload = {
+                ...newYear,
+                level: levelNum,
+                department_id: deptId
+            };
             if (editingYearId) {
-                await api.put(`/admin/academic-years/${editingYearId}`, { ...newYear, department_id: deptId });
+                await api.put(`/admin/academic-years/${editingYearId}`, payload);
             } else {
-                await api.post('/admin/academic-years', { ...newYear, department_id: deptId });
+                await api.post('/admin/academic-years', payload);
             }
             setShowYearForm(null);
             setEditingYearId(null);
@@ -222,11 +252,21 @@ const Departments = () => {
     };
 
     const saveSection = async (yearId: number, deptId: number) => {
+        const studentCountNum = newSection.student_count === '' ? 60 : Number(newSection.student_count);
+        if (isNaN(studentCountNum)) {
+            alert("Student count must be a valid number.");
+            return;
+        }
         try {
+            const payload = {
+                ...newSection,
+                student_count: studentCountNum,
+                academic_year_id: yearId
+            };
             if (editingSectionId) {
-                await api.put(`/admin/sections/${editingSectionId}`, { ...newSection, academic_year_id: yearId });
+                await api.put(`/admin/sections/${editingSectionId}`, payload);
             } else {
-                await api.post('/admin/sections', { ...newSection, academic_year_id: yearId });
+                await api.post('/admin/sections', payload);
             }
             setShowSectionForm(null);
             setEditingSectionId(null);
@@ -254,6 +294,24 @@ const Departments = () => {
     };
 
     const saveSubject = async (deptId: number) => {
+        if (!newSubject.name.trim()) {
+            alert("Subject Name is required.");
+            return;
+        }
+        if (!newSubject.code.trim()) {
+            alert("Subject Code is required.");
+            return;
+        }
+        const semesterNum = Number(newSubject.semester);
+        if (newSubject.semester === '' || isNaN(semesterNum)) {
+            alert("Semester is required.");
+            return;
+        }
+        const weeklyHoursNum = Number(newSubject.weekly_hours);
+        if (newSubject.weekly_hours === '' || isNaN(weeklyHoursNum)) {
+            alert("Weekly Hours is required.");
+            return;
+        }
         try {
             const validManualSlotIds = new Set(
                 (departmentSlots[deptId] || []).filter(slot => !slot.is_break).map(slot => slot.id)
@@ -261,7 +319,9 @@ const Departments = () => {
             const payload = {
                 ...newSubject,
                 department_id: deptId,
-                continuous_hours: Math.min(Math.max(newSubject.continuous_hours || 1, 1), newSubject.weekly_hours || 1),
+                semester: semesterNum,
+                weekly_hours: weeklyHoursNum,
+                continuous_hours: Math.min(Math.max(Number(newSubject.continuous_hours) || 1, 1), weeklyHoursNum),
                 manual_timeslot_ids: newSubject.manual_timeslot_ids.filter(id => validManualSlotIds.has(id)),
                 allowed_department_ids: newSubject.allowed_department_ids
             };
@@ -460,9 +520,19 @@ const Departments = () => {
                                                 <h4 style={{ margin: 0, color: 'var(--primary-700)', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                                                     <BookOpen size={18} /> Curriculum (Subjects)
                                                 </h4>
-                                                <button className="btn" style={{ fontSize: '0.8rem', padding: '0.2rem 0.6rem' }} onClick={() => {
+                <button className="btn" style={{ fontSize: '0.8rem', padding: '0.2rem 0.6rem' }} onClick={() => {
                                                     setEditingSubjectId(null);
-                                                    setNewSubject({ name: '', code: '', semester: 1, weekly_hours: 3, continuous_hours: 1, manual_timeslot_ids: [], is_elective: false, elective_group_id: '', allowed_department_ids: [] });
+                                                    setNewSubject({
+                                                        name: '',
+                                                        code: '',
+                                                        semester: '',
+                                                        weekly_hours: '',
+                                                        continuous_hours: '',
+                                                        manual_timeslot_ids: [],
+                                                        is_elective: false,
+                                                        elective_group_id: '',
+                                                        allowed_department_ids: []
+                                                    });
                                                     setShowSubjectForm(dept.id);
                                                 }}>
                                                     <Plus size={16} /> Add Subject
@@ -470,44 +540,81 @@ const Departments = () => {
                                             </div>
 
                                             {showSubjectForm === dept.id && (
-                                                <div className="input-group" style={{ flexDirection: 'row', alignItems: 'center', background: 'white', padding: '1rem', borderRadius: '8px', border: '1px solid var(--primary-200)', marginBottom: '1rem', flexWrap: 'wrap' }}>
-                                                    <input className="input-field" placeholder="Subject Name" value={newSubject.name} onChange={e => setNewSubject({ ...newSubject, name: e.target.value })} style={{ flex: 1, minWidth: 150 }} />
-                                                    <input className="input-field" placeholder="Code (CS101)" value={newSubject.code} onChange={e => setNewSubject({ ...newSubject, code: e.target.value })} style={{ width: 100 }} />
-                                                    <input type="number" className="input-field" placeholder="Sem" value={isNaN(newSubject.semester) ? '' : newSubject.semester} onChange={e => setNewSubject({ ...newSubject, semester: parseInt(e.target.value) })} style={{ width: 60 }} />
-                                                    <input type="number" className="input-field" placeholder="Hrs/Wk" value={isNaN(newSubject.weekly_hours) ? '' : newSubject.weekly_hours} onChange={e => {
-                                                        const weeklyHours = parseInt(e.target.value);
-                                                        setNewSubject({
-                                                            ...newSubject,
-                                                            weekly_hours: weeklyHours,
-                                                            continuous_hours: Math.min(newSubject.continuous_hours || 1, weeklyHours || 1)
-                                                        });
-                                                    }} style={{ width: 80 }} />
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                                                        <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Back-to-back</label>
-                                                        <input
-                                                            type="number"
-                                                            className="input-field"
-                                                            min="1"
-                                                            max={Math.max(newSubject.weekly_hours || 1, 1)}
-                                                            value={isNaN(newSubject.continuous_hours) ? '' : newSubject.continuous_hours}
-                                                            onChange={e => {
-                                                                const value = parseInt(e.target.value);
-                                                                setNewSubject({
-                                                                    ...newSubject,
-                                                                    continuous_hours: Math.min(Math.max(value || 1, 1), newSubject.weekly_hours || 1)
-                                                                });
-                                                            }}
-                                                            style={{ width: 74 }}
-                                                        />
+                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', background: 'white', padding: '1.5rem', borderRadius: '8px', border: '1px solid var(--primary-200)', marginBottom: '1.5rem' }}>
+                                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'flex-end' }}>
+                                                        <div className="input-group" style={{ marginBottom: 0, flex: 2, minWidth: '200px' }}>
+                                                            <label className="input-label">Subject Name</label>
+                                                            <input className="input-field" placeholder="Enter subject name (e.g. Database Systems)" value={newSubject.name} onChange={e => setNewSubject({ ...newSubject, name: e.target.value })} style={{ width: '100%' }} />
+                                                        </div>
+                                                        <div className="input-group" style={{ marginBottom: 0, flex: 1, minWidth: '120px' }}>
+                                                            <label className="input-label">Subject Code</label>
+                                                            <input className="input-field" placeholder="Enter code (e.g. CS101)" value={newSubject.code} onChange={e => setNewSubject({ ...newSubject, code: e.target.value })} style={{ width: '100%' }} />
+                                                        </div>
+                                                        <div className="input-group" style={{ marginBottom: 0, width: '80px' }}>
+                                                            <label className="input-label">Semester</label>
+                                                            <input
+                                                                type="number"
+                                                                className="input-field"
+                                                                placeholder="Semester"
+                                                                value={newSubject.semester}
+                                                                onChange={e => {
+                                                                    const parsed = parseInt(e.target.value);
+                                                                    setNewSubject({ ...newSubject, semester: isNaN(parsed) ? '' : parsed });
+                                                                }}
+                                                                style={{ width: '100%' }}
+                                                            />
+                                                        </div>
+                                                        <div className="input-group" style={{ marginBottom: 0, width: '100px' }}>
+                                                            <label className="input-label">Weekly Hours</label>
+                                                            <input
+                                                                type="number"
+                                                                className="input-field"
+                                                                placeholder="Hours"
+                                                                value={newSubject.weekly_hours}
+                                                                onChange={e => {
+                                                                    const parsed = parseInt(e.target.value);
+                                                                    const val = isNaN(parsed) ? '' : parsed;
+                                                                    setNewSubject({
+                                                                        ...newSubject,
+                                                                        weekly_hours: val,
+                                                                        continuous_hours: val === '' ? '' : Math.min(Number(newSubject.continuous_hours) || 1, val || 1)
+                                                                    });
+                                                                }}
+                                                                style={{ width: '100%' }}
+                                                            />
+                                                        </div>
+                                                        <div className="input-group" style={{ marginBottom: 0, width: '110px' }}>
+                                                            <label className="input-label">Back-to-back Hrs</label>
+                                                            <input
+                                                                type="number"
+                                                                className="input-field"
+                                                                min="1"
+                                                                max={Math.max(Number(newSubject.weekly_hours) || 1, 1)}
+                                                                value={newSubject.continuous_hours}
+                                                                onChange={e => {
+                                                                    const parsed = parseInt(e.target.value);
+                                                                    const val = isNaN(parsed) ? '' : parsed;
+                                                                    setNewSubject({
+                                                                        ...newSubject,
+                                                                        continuous_hours: val === '' ? '' : Math.min(Math.max(val || 1, 1), Number(newSubject.weekly_hours) || 1)
+                                                                    });
+                                                                }}
+                                                                placeholder="Max contiguous"
+                                                                style={{ width: '100%' }}
+                                                            />
+                                                        </div>
                                                     </div>
                                                     
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginLeft: '0.5rem' }}>
-                                                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.9rem' }}>
+                                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1.5rem', alignItems: 'center', padding: '0.75rem', background: '#f8fafc', borderRadius: '6px' }}>
+                                                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.9rem', fontWeight: 600 }}>
                                                             <input type="checkbox" checked={newSubject.is_elective} onChange={e => setNewSubject({ ...newSubject, is_elective: e.target.checked })} />
                                                             Elective
                                                         </label>
                                                         {newSubject.is_elective && (
-                                                            <input className="input-field" placeholder="Group ID (PE1)" value={newSubject.elective_group_id} onChange={e => setNewSubject({ ...newSubject, elective_group_id: e.target.value })} style={{ width: 100 }} />
+                                                            <div className="input-group" style={{ marginBottom: 0, width: '180px' }}>
+                                                                <label className="input-label" style={{ fontSize: '0.8rem' }}>Elective Group ID</label>
+                                                                <input className="input-field" placeholder="Enter group ID (e.g. PE1)" value={newSubject.elective_group_id} onChange={e => setNewSubject({ ...newSubject, elective_group_id: e.target.value })} style={{ width: '100%', padding: '0.4rem 0.75rem', fontSize: '0.875rem' }} />
+                                                            </div>
                                                         )}
                                                     </div>
                                                     <div style={{ display: 'flex', flexDirection: 'column', width: '100%', marginTop: '0.5rem' }}>
@@ -642,7 +749,7 @@ const Departments = () => {
                                                 <h4 style={{ margin: 0, color: 'var(--text-muted)' }}>Academic Years & Sections</h4>
                                                 <button className="btn" style={{ fontSize: '0.8rem', padding: '0.2rem 0.6rem' }} onClick={() => {
                                                     setEditingYearId(null);
-                                                    setNewYear({ name: '', level: 1 });
+                                                    setNewYear({ name: '', level: '' });
                                                     setShowYearForm(dept.id);
                                                 }}>
                                                     <Plus size={16} /> Add Year
@@ -650,11 +757,29 @@ const Departments = () => {
                                             </div>
 
                                             {showYearForm === dept.id && (
-                                                <div className="input-group" style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                                    <input className="input-field" placeholder="Year Name" value={newYear.name} onChange={e => setNewYear({ ...newYear, name: e.target.value })} />
-                                                    <input type="number" className="input-field" placeholder="Level" value={isNaN(newYear.level) ? '' : newYear.level} onChange={e => setNewYear({ ...newYear, level: parseInt(e.target.value) })} style={{ width: 80 }} />
-                                                    <button className="btn btn-primary" onClick={() => saveYear(dept.id)}>Save</button>
-                                                    <button className="btn" onClick={() => { setShowYearForm(null); setEditingYearId(null); }}>Cancel</button>
+                                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'flex-end', background: 'white', padding: '1rem', borderRadius: '8px', border: '1px solid var(--border-color)', marginBottom: '1rem' }}>
+                                                    <div className="input-group" style={{ marginBottom: 0, flex: 2, minWidth: '150px' }}>
+                                                        <label className="input-label">Academic Year Name</label>
+                                                        <input className="input-field" placeholder="Enter year name (e.g. First Year)" value={newYear.name} onChange={e => setNewYear({ ...newYear, name: e.target.value })} style={{ width: '100%' }} />
+                                                    </div>
+                                                    <div className="input-group" style={{ marginBottom: 0, width: '100px' }}>
+                                                        <label className="input-label">Year Level</label>
+                                                        <input
+                                                            type="number"
+                                                            className="input-field"
+                                                            placeholder="Level (1-4)"
+                                                            value={newYear.level}
+                                                            onChange={e => {
+                                                                const parsed = parseInt(e.target.value);
+                                                                setNewYear({ ...newYear, level: isNaN(parsed) ? '' : parsed });
+                                                            }}
+                                                            style={{ width: '100%' }}
+                                                        />
+                                                    </div>
+                                                    <div style={{ display: 'flex', gap: '0.5rem', height: '42px', alignItems: 'center' }}>
+                                                        <button className="btn btn-primary" onClick={() => saveYear(dept.id)}>Save</button>
+                                                        <button className="btn" onClick={() => { setShowYearForm(null); setEditingYearId(null); }}>Cancel</button>
+                                                    </div>
                                                 </div>
                                             )}
 
@@ -687,7 +812,7 @@ const Departments = () => {
                                                                     style={{ background: 'none', border: 'none', color: 'var(--primary-600)', cursor: 'pointer', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.2rem' }}
                                                                     onClick={() => {
                                                                         setEditingSectionId(null);
-                                                                        setNewSection({ name: '', student_count: 60 });
+                                                                        setNewSection({ name: '', student_count: '' });
                                                                         setShowSectionForm(year.id);
                                                                     }}
                                                                 >
@@ -696,11 +821,29 @@ const Departments = () => {
                                                             </div>
 
                                                             {showSectionForm === year.id && (
-                                                                <div className="input-group" style={{ flexDirection: 'row', alignItems: 'center', marginBottom: '0.5rem' }}>
-                                                                    <input className="input-field" placeholder="Sec Name (A)" value={newSection.name} onChange={e => setNewSection({ ...newSection, name: e.target.value })} style={{ width: 100 }} />
-                                                                    <input type="number" className="input-field" placeholder="Count" value={isNaN(newSection.student_count) ? '' : newSection.student_count} onChange={e => setNewSection({ ...newSection, student_count: parseInt(e.target.value) })} style={{ width: 80 }} />
-                                                                    <button className="btn btn-primary" style={{ padding: '0.2rem 0.5rem' }} onClick={() => saveSection(year.id, dept.id)}>Save</button>
-                                                                    <button className="btn" style={{ padding: '0.2rem 0.5rem' }} onClick={() => { setShowSectionForm(null); setEditingSectionId(null); }}>Cancel</button>
+                                                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'flex-end', background: '#f1f5f9', padding: '0.75rem', borderRadius: '6px', marginBottom: '0.5rem' }}>
+                                                                    <div className="input-group" style={{ marginBottom: 0, width: '130px' }}>
+                                                                        <label className="input-label" style={{ fontSize: '0.75rem' }}>Section Name</label>
+                                                                        <input className="input-field" placeholder="Enter section (e.g. A)" value={newSection.name} onChange={e => setNewSection({ ...newSection, name: e.target.value })} style={{ width: '100%', padding: '0.5rem 0.75rem', fontSize: '0.85rem' }} />
+                                                                    </div>
+                                                                    <div className="input-group" style={{ marginBottom: 0, width: '110px' }}>
+                                                                        <label className="input-label" style={{ fontSize: '0.75rem' }}>Student Count</label>
+                                                                        <input
+                                                                            type="number"
+                                                                            className="input-field"
+                                                                            placeholder="Student count (e.g. 60)"
+                                                                            value={newSection.student_count}
+                                                                            onChange={e => {
+                                                                                const parsed = parseInt(e.target.value);
+                                                                                setNewSection({ ...newSection, student_count: isNaN(parsed) ? '' : parsed });
+                                                                            }}
+                                                                            style={{ width: '100%', padding: '0.5rem 0.75rem', fontSize: '0.85rem' }}
+                                                                        />
+                                                                    </div>
+                                                                    <div style={{ display: 'flex', gap: '0.4rem', height: '34px', alignItems: 'center' }}>
+                                                                        <button className="btn btn-primary" style={{ padding: '0.25rem 0.75rem', minHeight: 'unset', height: '34px' }} onClick={() => saveSection(year.id, dept.id)}>Save</button>
+                                                                        <button className="btn" style={{ padding: '0.25rem 0.75rem', minHeight: 'unset', height: '34px' }} onClick={() => { setShowSectionForm(null); setEditingSectionId(null); }}>Cancel</button>
+                                                                    </div>
                                                                 </div>
                                                             )}
 

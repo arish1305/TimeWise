@@ -60,7 +60,7 @@ const Login = () => {
                                 className="input-field"
                                 value={username}
                                 onChange={(e) => setUsername(e.target.value)}
-                                placeholder="admin or faculty id"
+                                placeholder="Enter your username or faculty ID (e.g. FAC001)"
                                 style={{ width: '100%', boxSizing: 'border-box', paddingLeft: '2.7rem' }}
                             />
                         </div>
@@ -75,7 +75,7 @@ const Login = () => {
                                 className="input-field"
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
-                                placeholder="enter password"
+                                placeholder="Enter your password"
                                 style={{ width: '100%', boxSizing: 'border-box', paddingLeft: '2.7rem' }}
                             />
                         </div>

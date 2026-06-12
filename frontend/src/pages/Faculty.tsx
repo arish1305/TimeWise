@@ -730,7 +730,7 @@ const FacultyManager = () => {
                                             <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0.35rem', minWidth: 620 }}>
                                                 <thead>
                                                     <tr>
-                                                        <th style={{ textAlign: 'left', fontSize: '0.75rem', color: 'var(--text-secondary)', width: 130 }}>Period</th>
+                                                        <th style={{ textAlign: 'left', fontSize: '0.75rem', color: 'var(--text-secondary)', width: 155 }}>Period</th>
                                                         {availabilityDays.map(day => (
                                                             <th key={day} style={{ textAlign: 'center', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{day.slice(0, 3)}</th>
                                                         ))}
@@ -739,7 +739,7 @@ const FacultyManager = () => {
                                                 <tbody>
                                                     {availabilityRows.map(row => (
                                                         <tr key={`${row.start_time}-${row.end_time}`}>
-                                                            <td style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                                                            <td style={{ fontSize: '0.76rem', fontWeight: 700, color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>
                                                                 {formatTimeRange12Hour(row.start_time, row.end_time)}
                                                             </td>
                                                             {availabilityDays.map(day => {

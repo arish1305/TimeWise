@@ -293,6 +293,33 @@ def migrate_timetable_versions():
         conn.execute(text("UPDATE timetables SET edited_version = 0 WHERE edited_version IS NULL"))
         conn.execute(text("UPDATE timetables SET approved_version = 0 WHERE approved_version IS NULL"))
 
+
+def migrate_faculty_availability():
+    if engine.dialect.name != "postgresql":
+        return
+
+    with engine.begin() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS faculty_availability (
+                id SERIAL PRIMARY KEY,
+                faculty_id INTEGER NOT NULL REFERENCES faculty(id),
+                timeslot_id INTEGER NOT NULL REFERENCES timeslots(id),
+                status VARCHAR NOT NULL DEFAULT 'AVAILABLE',
+                created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                CONSTRAINT uq_faculty_availability_faculty_timeslot UNIQUE (faculty_id, timeslot_id)
+            )
+        """))
+
+        conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS idx_faculty_availability_faculty_id
+            ON faculty_availability(faculty_id)
+        """))
+        conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS idx_faculty_availability_timeslot_id
+            ON faculty_availability(timeslot_id)
+        """))
+
 # The call to wait_for_db should be done within the application startup
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

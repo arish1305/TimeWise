@@ -7,7 +7,7 @@ from sqlalchemy import text
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-from routers import auth, admin, timetable
+from routers import auth, admin, timetable, faculty_availability
 from database import (
     engine,
     Base,
@@ -18,6 +18,7 @@ from database import (
     migrate_scheduling_rules,
     migrate_timetable_editing_v2,
     migrate_timetable_versions,
+    migrate_faculty_availability,
 )
 
 app = FastAPI(title="TimeWise AI Backend", version="0.1.0")
@@ -41,6 +42,7 @@ def on_startup():
         migrate_scheduling_rules()
         migrate_timetable_editing_v2()
         migrate_timetable_versions()
+        migrate_faculty_availability()
         seed()
     except Exception as e:
         logger.error(f"Startup error: {e}")
@@ -66,6 +68,7 @@ app.add_middleware(
 
 app.include_router(auth.router)
 app.include_router(admin.router)
+app.include_router(faculty_availability.router)
 app.include_router(timetable.router)
 
 @app.get("/")

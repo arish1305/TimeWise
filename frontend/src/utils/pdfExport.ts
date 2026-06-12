@@ -1,5 +1,6 @@
 import type { jsPDF } from 'jspdf';
 import { PDF_LOGO_DATA_URL } from './branding';
+import { formatTime12Hour } from './timeFormat';
 
 type TimeSlot = {
     id: number;
@@ -107,12 +108,6 @@ const loadPdfLogo = async () => {
     if (pdfLogoDataUrl) return pdfLogoDataUrl;
     pdfLogoDataUrl = PDF_LOGO_DATA_URL;
     return pdfLogoDataUrl;
-};
-
-const formatTime = (time?: string | null) => {
-    if (!time) return '-';
-    const [hour, minute] = time.split(':');
-    return `${Number(hour)}:${minute}`;
 };
 
 const safeFileName = (value: string) =>
@@ -252,7 +247,7 @@ const drawSectionGrid = (doc: jsPDF, timetable: SectionTimetable, timeSlots: Tim
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(5.7);
         doc.rect(x + 1, startY, cellWidth - 2, headerHeight, 'FD');
-        doc.text(`${formatTime(time.start)} - ${formatTime(time.end)}`, x + cellWidth / 2, startY + 5.2, { align: 'center' });
+        doc.text(`${formatTime12Hour(time.start)} - ${formatTime12Hour(time.end)}`, x + cellWidth / 2, startY + 5.2, { align: 'center' });
     });
 
     sectionDays.forEach((day, dayIndex) => {
@@ -442,7 +437,7 @@ const drawFacultyGrid = (doc: jsPDF, timetable: FacultyTimetable, startY: number
     times.forEach((time, index) => {
         const x = margin + dayWidth + index * cellWidth;
         doc.roundedRect(x + 1, startY, cellWidth - 2, headerHeight, 2, 2, 'FD');
-        doc.text(`${formatTime(time.start)} - ${formatTime(time.end)}`, x + cellWidth / 2, startY + 8, { align: 'center' });
+        doc.text(`${formatTime12Hour(time.start)} - ${formatTime12Hour(time.end)}`, x + cellWidth / 2, startY + 8, { align: 'center' });
     });
 
     facultyDays.forEach((day, dayIndex) => {

@@ -49,9 +49,6 @@ const Login = () => {
                     <AppLogo size={64} />
                     <div>
                         <h1 style={{ fontSize: '2rem', fontWeight: 800, marginBottom: '0.5rem' }}>{APP_NAME} Login</h1>
-                        <p style={{ color: 'var(--text-muted)', margin: 0 }}>
-                            Admin uses `admin / admin`. Faculty uses `faculty id / faculty id`.
-                        </p>
                     </div>
                 </div>
                 <form onSubmit={handleSubmit}>

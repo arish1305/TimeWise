@@ -6,6 +6,7 @@ import '../styles/Timetables.css';
 import { downloadAllTimetablesPdf } from '../utils/pdfExport';
 import { downloadAllTimetablesWord } from '../utils/wordExport';
 import AppLogo from '../components/AppLogo';
+import { formatTime12Hour } from '../utils/timeFormat';
 
 const Timetables = () => {
     // Data State
@@ -281,14 +282,9 @@ const Timetables = () => {
             }
         });
 
-        const formatTime = (t: string) => {
-            const [h, m] = t.split(':');
-            return `${parseInt(h)}:${m}`;
-        };
-
         const formatRange = (start: string, end: string) => {
-            const s = formatTime(start);
-            const e = formatTime(end);
+            const s = formatTime12Hour(start);
+            const e = formatTime12Hour(end);
             return `${s} - ${e}`;
         };
 
@@ -665,7 +661,7 @@ const Timetables = () => {
                                                         </div>
                                                         {tt.created_at && (
                                                             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-                                                                Generated on: {new Date(tt.created_at).toLocaleString()} (v{tt.version || 1})
+                                                                Generated on: {new Date(tt.created_at).toLocaleString([], { hour: 'numeric', minute: '2-digit', hour12: true })} (v{tt.version || 1})
                                                             </div>
                                                         )}
                                                     </div>

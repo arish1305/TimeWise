@@ -85,6 +85,11 @@
     box-shadow: var(--shadow-sm);
 }
 
+.time-range {
+    white-space: normal;
+    line-height: 1.25;
+}
+
 .header-day {
     position: sticky;
     left: 0;

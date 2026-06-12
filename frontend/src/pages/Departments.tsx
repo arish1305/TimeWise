@@ -392,7 +392,7 @@ const Departments = () => {
                                                 </div>
                                             </div>
 
-                                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '0.75rem', alignItems: 'end' }}>
+                                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.75rem', alignItems: 'end' }}>
                                                 <div style={{ gridColumn: '1 / -1' }}>
                                                     <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>Working Days</label>
                                                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>

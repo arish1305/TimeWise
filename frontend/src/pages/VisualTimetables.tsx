@@ -1038,10 +1038,11 @@ const VisualTimetables = () => {
                         <div className="panel-search-box">
                             <Search className="search-icon" size={14} />
                             <input 
-                                placeholder={viewMode === 'faculty' ? "Search faculty..." : "Search timetables..."}
+                                placeholder={viewMode === 'faculty' ? "Type to search faculty..." : "Type to search timetables..."}
                                 value={sidebarSearch}
                                 onChange={e => setSidebarSearch(e.target.value)}
                                 className="search-input"
+                                aria-label="Search"
                             />
                         </div>
 
@@ -1161,10 +1162,11 @@ const VisualTimetables = () => {
                             <Filter className="search-icon" size={14} />
                             <input 
                                 type="text" 
-                                placeholder="Highlight by Code/Faculty/Room..."
+                                placeholder="Enter Subject Code, Faculty, or Room..."
                                 value={searchQuery}
                                 onChange={e => setSearchQuery(e.target.value)}
                                 className="search-input"
+                                aria-label="Highlighter filter"
                             />
                         </div>
                     </div>

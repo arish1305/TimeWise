@@ -506,6 +506,7 @@ const Timetables = () => {
                                 value={semester}
                                 onChange={(e) => setSemester(parseInt(e.target.value))}
                                 min="1" max="8"
+                                placeholder="Enter Semester (1-8)"
                                 style={{ width: '100%', boxSizing: 'border-box' }}
                             />
                         </div>
@@ -651,9 +652,11 @@ const Timetables = () => {
                                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
                                                     <div>
                                                         <div className="item-title">
+                                                            {tt.section?.academic_year?.department?.code ? `${tt.section.academic_year.department.code} - ` : ''}
                                                             {tt.section?.academic_year?.name || 'Unknown Year'} - Section {tt.section?.name || 'Unknown'}
                                                         </div>
                                                         <div className="item-subtitle">
+                                                            {tt.section?.academic_year?.department?.name ? `${tt.section.academic_year.department.name} • ` : ''}
                                                             Semester {tt.semester} • {tt.entries?.length || 0} classes
                                                             <span style={{ marginLeft: '8px', padding: '2px 6px', borderRadius: '4px', fontSize: '0.75rem', background: tt.status === 'ACTIVE' ? '#dcfce7' : tt.status === 'ARCHIVED' ? '#f1f5f9' : '#fef9c3', color: tt.status === 'ACTIVE' ? '#166534' : tt.status === 'ARCHIVED' ? '#475569' : '#854d0e' }}>
                                                                 {tt.status}

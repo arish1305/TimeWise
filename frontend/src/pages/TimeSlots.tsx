@@ -122,7 +122,7 @@ const TimeSlots = () => {
                             </div>
                             <div>
                                 <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Label (Optional)</label>
-                                <input className="input-field" placeholder="e.g. Lunch" value={newSlot.label} onChange={e => setNewSlot({ ...newSlot, label: e.target.value })} style={{ width: '100%' }} />
+                                <input className="input-field" placeholder="Enter label (e.g. Coffee Break / Lunch)" value={newSlot.label} onChange={e => setNewSlot({ ...newSlot, label: e.target.value })} style={{ width: '100%' }} />
                             </div>
                             <div style={{ paddingBottom: '0.8rem' }}>
                                 <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>

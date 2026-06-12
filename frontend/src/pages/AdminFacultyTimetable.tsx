@@ -179,7 +179,7 @@ const AdminFacultyTimetable = () => {
                             className="input-field"
                             value={facultyName}
                             onChange={(e) => setFacultyName(e.target.value)}
-                            placeholder="Enter faculty name"
+                            placeholder="Enter faculty name (e.g. Dr. Jane Doe)"
                         />
                     </div>
                     <div className="input-group" style={{ marginBottom: 0 }}>
@@ -188,7 +188,7 @@ const AdminFacultyTimetable = () => {
                             className="input-field"
                             value={facultyIdCode}
                             onChange={(e) => setFacultyIdCode(e.target.value)}
-                            placeholder="Enter faculty id code"
+                            placeholder="Enter faculty ID code (e.g. FAC001)"
                         />
                     </div>
                     <div className="input-group" style={{ marginBottom: 0 }}>

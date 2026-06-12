@@ -461,6 +461,7 @@ const FacultyManager = () => {
                         </div>
 
                         <div style={{ marginTop: '1.5rem', padding: '1rem', border: '1px solid var(--border-color)', borderRadius: '8px', background: 'var(--background-color)' }}>
+                            <label className="input-label" style={{ marginBottom: '0.5rem', display: 'block' }}>Upload Faculty File (CSV or Excel)</label>
                             <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
                                 <input
                                     type="file"
@@ -500,11 +501,11 @@ const FacultyManager = () => {
                                     }}>
                                         <div className="input-group" style={{ marginBottom: 0 }}>
                                             <label className="input-label">Name</label>
-                                            <input className="input-field" value={row.name} onChange={e => updateBulkRow(index, 'name', e.target.value)} />
+                                            <input className="input-field" placeholder="Enter faculty name" value={row.name} onChange={e => updateBulkRow(index, 'name', e.target.value)} />
                                         </div>
                                         <div className="input-group" style={{ marginBottom: 0 }}>
                                             <label className="input-label">ID Code</label>
-                                            <input className="input-field" value={row.faculty_id_code} onChange={e => updateBulkRow(index, 'faculty_id_code', e.target.value)} />
+                                            <input className="input-field" placeholder="Enter ID code" value={row.faculty_id_code} onChange={e => updateBulkRow(index, 'faculty_id_code', e.target.value)} />
                                         </div>
                                         <div className="input-group" style={{ marginBottom: 0 }}>
                                             <label className="input-label">Designation</label>
@@ -517,15 +518,15 @@ const FacultyManager = () => {
                                         </div>
                                         <div className="input-group" style={{ marginBottom: 0 }}>
                                             <label className="input-label">Min</label>
-                                            <input type="number" className="input-field" value={row.min_hours_per_week} onChange={e => updateBulkRow(index, 'min_hours_per_week', parseInt(e.target.value) || 0)} />
+                                            <input type="number" className="input-field" placeholder="Min load" value={row.min_hours_per_week} onChange={e => updateBulkRow(index, 'min_hours_per_week', parseInt(e.target.value) || 0)} />
                                         </div>
                                         <div className="input-group" style={{ marginBottom: 0 }}>
                                             <label className="input-label">Max</label>
-                                            <input type="number" className="input-field" value={row.max_hours_per_week} onChange={e => updateBulkRow(index, 'max_hours_per_week', parseInt(e.target.value) || 0)} />
+                                            <input type="number" className="input-field" placeholder="Max load" value={row.max_hours_per_week} onChange={e => updateBulkRow(index, 'max_hours_per_week', parseInt(e.target.value) || 0)} />
                                         </div>
                                         <div className="input-group" style={{ marginBottom: 0 }}>
                                             <label className="input-label">Department Codes</label>
-                                            <input className="input-field" placeholder="CSE,ECE" value={row.department_codes} onChange={e => updateBulkRow(index, 'department_codes', e.target.value)} />
+                                            <input className="input-field" placeholder="Enter department codes (e.g. CSE, ECE)" value={row.department_codes} onChange={e => updateBulkRow(index, 'department_codes', e.target.value)} />
                                         </div>
                                         <button className="btn" style={{ padding: '0.65rem', color: 'var(--error-color)' }} onClick={() => removeBulkRow(index)} title="Remove row">
                                             <Trash2 size={16} />
@@ -558,11 +559,11 @@ const FacultyManager = () => {
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginTop: '1rem' }}>
                             <div className="input-group">
                                 <label className="input-label">Full Name</label>
-                                <input className="input-field" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} placeholder="e.g. Dr. Jane Doe" />
+                                <input className="input-field" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} placeholder="Enter full name (e.g. Dr. Jane Doe)" />
                             </div>
                             <div className="input-group">
                                 <label className="input-label">Faculty ID Code</label>
-                                <input className="input-field" value={formData.faculty_id_code} onChange={e => setFormData({ ...formData, faculty_id_code: e.target.value })} placeholder="e.g. FAC001" />
+                                <input className="input-field" value={formData.faculty_id_code} onChange={e => setFormData({ ...formData, faculty_id_code: e.target.value })} placeholder="Enter faculty ID code (e.g. FAC001)" />
                             </div>
 
                             <div className="input-group">
@@ -578,11 +579,11 @@ const FacultyManager = () => {
                             <div style={{ display: 'flex', gap: '1rem' }}>
                                 <div className="input-group" style={{ flex: 1 }}>
                                     <label className="input-label">Min Hours/Week</label>
-                                    <input type="number" className="input-field" value={formData.min_hours_per_week} onChange={e => setFormData({ ...formData, min_hours_per_week: parseInt(e.target.value) })} />
+                                    <input type="number" className="input-field" placeholder="Enter min load (e.g. 5)" value={formData.min_hours_per_week} onChange={e => setFormData({ ...formData, min_hours_per_week: parseInt(e.target.value) })} />
                                 </div>
                                 <div className="input-group" style={{ flex: 1 }}>
                                     <label className="input-label">Max Hours/Week</label>
-                                    <input type="number" className="input-field" value={formData.max_hours_per_week} onChange={e => setFormData({ ...formData, max_hours_per_week: parseInt(e.target.value) })} />
+                                    <input type="number" className="input-field" placeholder="Enter max load (e.g. 18)" value={formData.max_hours_per_week} onChange={e => setFormData({ ...formData, max_hours_per_week: parseInt(e.target.value) })} />
                                 </div>
                             </div>
 

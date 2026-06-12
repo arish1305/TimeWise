@@ -3,6 +3,7 @@ import api from '../api/axios';
 import { Plus, Trash2, Edit2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { formatTimeRange12Hour } from '../utils/timeFormat';
+import TimePicker12 from '../components/TimePicker12';
 
 interface TimeSlot {
     id: number;
@@ -42,8 +43,6 @@ const TimeSlots = () => {
 
     const saveSlot = async () => {
         try {
-            // Format times if needed? Input type="time" gives "HH:MM". Backend expects "HH:MM:SS" or "HH:MM"? 
-            // Pydantic/SQLAlchemy usually handles "HH:MM" fine.
             const payload = {
                 ...newSlot,
                 start_time: newSlot.start_time.length === 5 ? newSlot.start_time + ':00' : newSlot.start_time,
@@ -115,11 +114,11 @@ const TimeSlots = () => {
                             </div>
                             <div>
                                 <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Start</label>
-                                <input type="time" className="input-field" value={newSlot.start_time} onChange={e => setNewSlot({ ...newSlot, start_time: e.target.value })} style={{ width: '100%' }} />
+                                <TimePicker12 value={newSlot.start_time} onChange={value => setNewSlot({ ...newSlot, start_time: value })} />
                             </div>
                             <div>
                                 <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>End</label>
-                                <input type="time" className="input-field" value={newSlot.end_time} onChange={e => setNewSlot({ ...newSlot, end_time: e.target.value })} style={{ width: '100%' }} />
+                                <TimePicker12 value={newSlot.end_time} onChange={value => setNewSlot({ ...newSlot, end_time: value })} />
                             </div>
                             <div>
                                 <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Label (Optional)</label>

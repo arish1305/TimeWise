@@ -291,8 +291,16 @@ def register_hard_constraints(
             locked_hours = locked_subject_hours.get(sid, 0)
             sessions_needed = max(0, weekly_hours - locked_hours)
             
-            blocks_needed = sessions_needed // continuous_hours if continuous_hours > 0 else 0
-            remainder = sessions_needed % continuous_hours if continuous_hours > 0 else 0
+            if sessions_needed >= continuous_hours:
+                blocks_needed = 1
+                remainder = sessions_needed - continuous_hours
+            else:
+                blocks_needed = 0
+                remainder = sessions_needed
+            logger.info(
+                "Subject: %s\nWeekly Hours: %s\nContinuous Hours: %s\nScheduling Pattern:\n%s mandatory %s-hour block\n%s independent hours",
+                s.get("name"), weekly_hours, continuous_hours, blocks_needed, continuous_hours, remainder
+            )
             
             if blocks_needed > 0:
                 all_block_starts = []

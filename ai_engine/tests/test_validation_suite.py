@@ -322,3 +322,73 @@ def test_partial_coverage_skips_impossible_continuous_block_subject():
 
     assert all(entry["subject_id"] != 1 for entry in schedule)
     assert any(entry["subject_id"] == 2 for entry in schedule)
+
+
+def test_theory_subject_continuous_redefinition_5_hours():
+    timeslots = _build_base_timeslots()
+    subjects = [
+        {"id": 1, "name": "Theory A", "weekly_hours": 5, "continuous_hours": 2, "subject_type": "THEORY", "faculty_id": None, "is_elective": False}
+    ]
+    constraints = {"random_seed": 42}
+    
+    solver = CPSatSolver(subjects, [], timeslots, constraints)
+    schedule = solver.solve()
+    
+    assert len(schedule) == 5
+    
+    slots_map = {t["id"]: t for t in timeslots}
+    day_counts = {}
+    for entry in schedule:
+        slot = slots_map[entry["timeslot_id"]]
+        day = slot["day"]
+        day_counts[day] = day_counts.get(day, 0) + 1
+        
+    counts = sorted(list(day_counts.values()))
+    assert counts == [1, 1, 1, 2]
+
+
+def test_theory_subject_continuous_redefinition_4_hours():
+    timeslots = _build_base_timeslots()
+    subjects = [
+        {"id": 1, "name": "Theory B", "weekly_hours": 4, "continuous_hours": 2, "subject_type": "THEORY", "faculty_id": None, "is_elective": False}
+    ]
+    constraints = {"random_seed": 42}
+    
+    solver = CPSatSolver(subjects, [], timeslots, constraints)
+    schedule = solver.solve()
+    
+    assert len(schedule) == 4
+    
+    slots_map = {t["id"]: t for t in timeslots}
+    day_counts = {}
+    for entry in schedule:
+        slot = slots_map[entry["timeslot_id"]]
+        day = slot["day"]
+        day_counts[day] = day_counts.get(day, 0) + 1
+        
+    counts = sorted(list(day_counts.values()))
+    assert counts == [1, 1, 2]
+
+
+def test_lab_subject_continuous_redefinition_4_hours():
+    timeslots = _build_base_timeslots()
+    subjects = [
+        {"id": 1, "name": "Lab Chem", "weekly_hours": 4, "continuous_hours": 2, "subject_type": "LAB", "faculty_id": None, "is_elective": False}
+    ]
+    constraints = {"random_seed": 42}
+    
+    solver = CPSatSolver(subjects, [], timeslots, constraints)
+    schedule = solver.solve()
+    
+    assert len(schedule) == 4
+    
+    slots_map = {t["id"]: t for t in timeslots}
+    day_counts = {}
+    for entry in schedule:
+        slot = slots_map[entry["timeslot_id"]]
+        day = slot["day"]
+        day_counts[day] = day_counts.get(day, 0) + 1
+        
+    counts = sorted(list(day_counts.values()))
+    assert counts == [1, 1, 2]
+

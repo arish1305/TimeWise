@@ -257,8 +257,12 @@ def diagnose_infeasibility(
         if continuous_hours > 1:
             locked_hours = locked_subject_hours.get(sid, 0)
             sessions_needed = max(0, weekly_hours - locked_hours)
-            blocks_needed = sessions_needed // continuous_hours if continuous_hours > 0 else 0
-            remainder = sessions_needed % continuous_hours if continuous_hours > 0 else 0
+            if sessions_needed >= continuous_hours:
+                blocks_needed = 1
+                remainder = sessions_needed - continuous_hours
+            else:
+                blocks_needed = 0
+                remainder = sessions_needed
             
             if blocks_needed > 0:
                 all_block_starts = []

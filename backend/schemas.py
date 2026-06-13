@@ -124,7 +124,7 @@ class FacultySubjectAssignment(FacultySubjectAssignmentBase):
 class FacultyBase(BaseModel):
     name: str
     faculty_id_code: Optional[str] = None # e.g. FAC001
-    faculty_type: FacultyType = FacultyType.ASSISTANT_PROFESSOR
+    faculty_type: str = "ASSISTANT_PROFESSOR"
     min_hours_per_week: int = 5
     max_hours_per_week: int = 18
     preferred_slots: Optional[dict] = None
@@ -143,10 +143,11 @@ class Faculty(FacultyBase):
 class FacultyBulkRow(BaseModel):
     name: str
     faculty_id_code: Optional[str] = None
-    faculty_type: FacultyType = FacultyType.ASSISTANT_PROFESSOR
+    faculty_type: str = "ASSISTANT_PROFESSOR"
     min_hours_per_week: int = 5
     max_hours_per_week: int = 18
     department_codes: List[str] = []
+    row_number: Optional[int] = None
 
 class FacultyBulkCreate(BaseModel):
     rows: List[FacultyBulkRow]

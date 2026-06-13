@@ -5,11 +5,16 @@ const Layout = () => {
     return (
         <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg-app)' }}>
             <Sidebar />
-            <main style={{ flex: 1, padding: '1rem', overflowY: 'auto', maxHeight: '100vh' }}>
+            <main style={{ flex: 1, padding: '1rem', overflowY: 'auto', maxHeight: '100vh', minWidth: 0, display: 'flex', flexDirection: 'column' }}>
                 <div className="glass-panel" style={{
                     padding: '2rem',
                     minHeight: 'calc(100vh - 2rem)',
-                    background: 'rgba(255, 255, 255, 0.4)' /* Lighter glass for main area */
+                    background: 'rgba(255, 255, 255, 0.4)' /* Lighter glass for main area */,
+                    minWidth: 0,
+                    flex: 1,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    boxSizing: 'border-box'
                 }}>
                     <Outlet />
                 </div>

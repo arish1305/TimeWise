@@ -112,3 +112,97 @@ def test_faculty_availability_api_bulk_update_and_reset():
     finally:
         backend_main.app.dependency_overrides.clear()
         db.close()
+
+
+def test_faculty_bulk_onboarding_lenient():
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    backend_main.Base.metadata.create_all(bind=engine)
+    TestingSessionLocal = sessionmaker(bind=engine)
+    db = TestingSessionLocal()
+
+    # Add department
+    dept = models.Department(name="Computer Science Engineering", code="CSE")
+    db.add(dept)
+    db.commit()
+
+    def override_get_db():
+        try:
+            yield db
+        finally:
+            pass
+
+    # Import admin router dependencies
+    import database
+    from routers.admin import auth
+    backend_main.app.dependency_overrides[database.get_db] = override_get_db
+    backend_main.app.dependency_overrides[auth.require_admin] = lambda: SimpleNamespace(
+        username="admin",
+        role=models.UserRole.ADMIN,
+        user_id=1,
+    )
+
+    try:
+        # Test manual bulk onboarding with custom designation (faculty_type)
+        response = client.post("/admin/faculty/bulk", json={
+            "rows": [
+                {
+                    "name": "Dr. John Doe",
+                    "faculty_id_code": "FAC101",
+                    "faculty_type": "Visiting Professor",
+                    "min_hours_per_week": 6,
+                    "max_hours_per_week": 12,
+                    "department_codes": ["CSE"]
+                },
+                {
+                    "name": "Dr. Missing ID",
+                    "faculty_id_code": "",  # Missing ID
+                    "faculty_type": "ASSISTANT_PROFESSOR",
+                    "min_hours_per_week": 5,
+                    "max_hours_per_week": 18,
+                    "department_codes": ["CSE"]
+                }
+            ]
+        })
+        assert response.status_code == 200
+        data = response.json()
+        assert data["created_count"] == 1
+        assert len(data["errors"]) == 1
+        assert "Row 2: ID is missing" in data["errors"][0]
+
+        # Verify Dr. John Doe was created with custom designation
+        fac = db.query(models.Faculty).filter(models.Faculty.faculty_id_code == "FAC101").first()
+        assert fac is not None
+        assert fac.name == "Dr. John Doe"
+        assert fac.faculty_type == "Visiting Professor"
+
+        # Test bulk upload with CSV and flexible headers
+        csv_content = (
+            "Faculty Name,ID,Designation,Min Hours,Max Hours,Department Codes\n"
+            "Dr. Alice Smith,FAC102,Senior Lecturer,4,16,CSE\n"
+            ",FAC103,Professor,5,18,CSE\n" # Missing name
+        )
+        
+        from io import BytesIO
+        file = {"file": ("faculty.csv", BytesIO(csv_content.encode("utf-8")), "text/csv")}
+        
+        upload_response = client.post("/admin/faculty/bulk-upload", files=file)
+        assert upload_response.status_code == 200
+        upload_data = upload_response.json()
+        
+        assert upload_data["created_count"] == 1
+        assert len(upload_data["errors"]) == 1
+        assert "Row 2: Name is missing" in upload_data["errors"][0]
+
+        # Verify Alice Smith was created
+        fac2 = db.query(models.Faculty).filter(models.Faculty.faculty_id_code == "FAC102").first()
+        assert fac2 is not None
+        assert fac2.name == "Dr. Alice Smith"
+        assert fac2.faculty_type == "Senior Lecturer"
+        
+    finally:
+        backend_main.app.dependency_overrides.clear()
+        db.close()

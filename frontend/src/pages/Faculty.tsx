@@ -487,53 +487,50 @@ const FacultyManager = () => {
                                 </button>
                             </div>
 
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                                {bulkRows.map((row, index) => (
-                                    <div key={index} style={{
-                                        display: 'grid',
-                                        gridTemplateColumns: 'minmax(180px, 1.4fr) minmax(120px, 1fr) minmax(150px, 1fr) 110px 110px minmax(180px, 1.2fr) 44px',
-                                        gap: '0.75rem',
-                                        alignItems: 'end',
-                                        padding: '0.9rem',
-                                        border: '1px solid var(--border-color)',
-                                        borderRadius: '8px',
-                                        background: 'white'
-                                    }}>
-                                        <div className="input-group" style={{ marginBottom: 0 }}>
-                                            <label className="input-label">Name</label>
-                                            <input className="input-field" placeholder="Enter faculty name" value={row.name} onChange={e => updateBulkRow(index, 'name', e.target.value)} />
-                                        </div>
-                                        <div className="input-group" style={{ marginBottom: 0 }}>
-                                            <label className="input-label">ID Code</label>
-                                            <input className="input-field" placeholder="Enter ID code" value={row.faculty_id_code} onChange={e => updateBulkRow(index, 'faculty_id_code', e.target.value)} />
-                                        </div>
-                                        <div className="input-group" style={{ marginBottom: 0 }}>
-                                            <label className="input-label">Designation</label>
-                                            <select className="input-field" value={row.faculty_type} onChange={e => updateBulkRow(index, 'faculty_type', e.target.value)}>
-                                                <option value="PROFESSOR">Professor</option>
-                                                <option value="ASSISTANT_PROFESSOR">Assistant Professor</option>
-                                                <option value="LAB_INSTRUCTOR">Lab Instructor</option>
-                                                <option value="GUEST">Guest</option>
-                                            </select>
-                                        </div>
-                                        <div className="input-group" style={{ marginBottom: 0 }}>
-                                            <label className="input-label">Min</label>
-                                            <input type="number" className="input-field" placeholder="Min load" value={row.min_hours_per_week} onChange={e => updateBulkRow(index, 'min_hours_per_week', parseInt(e.target.value) || 0)} />
-                                        </div>
-                                        <div className="input-group" style={{ marginBottom: 0 }}>
-                                            <label className="input-label">Max</label>
-                                            <input type="number" className="input-field" placeholder="Max load" value={row.max_hours_per_week} onChange={e => updateBulkRow(index, 'max_hours_per_week', parseInt(e.target.value) || 0)} />
-                                        </div>
-                                        <div className="input-group" style={{ marginBottom: 0 }}>
-                                            <label className="input-label">Department Codes</label>
-                                            <input className="input-field" placeholder="Enter department codes (e.g. CSE, ECE)" value={row.department_codes} onChange={e => updateBulkRow(index, 'department_codes', e.target.value)} />
-                                        </div>
-                                        <button className="btn" style={{ padding: '0.65rem', color: 'var(--error-color)' }} onClick={() => removeBulkRow(index)} title="Remove row">
-                                            <Trash2 size={16} />
-                                        </button>
-                                    </div>
-                                ))}
-                            </div>
+                             <div style={{ overflowX: 'auto', paddingBottom: '0.5rem', width: '100%' }}>
+                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', minWidth: '950px' }}>
+                                     {bulkRows.map((row, index) => (
+                                         <div key={index} style={{
+                                             display: 'grid',
+                                             gridTemplateColumns: 'minmax(180px, 1.4fr) minmax(120px, 1fr) minmax(150px, 1fr) 110px 110px minmax(180px, 1.2fr) 44px',
+                                             gap: '0.75rem',
+                                             alignItems: 'end',
+                                             padding: '0.9rem',
+                                             border: '1px solid var(--border-color)',
+                                             borderRadius: '8px',
+                                             background: 'white'
+                                         }}>
+                                             <div className="input-group" style={{ marginBottom: 0 }}>
+                                                 <label className="input-label">Name</label>
+                                                 <input className="input-field" placeholder="Enter faculty name" value={row.name} onChange={e => updateBulkRow(index, 'name', e.target.value)} />
+                                             </div>
+                                             <div className="input-group" style={{ marginBottom: 0 }}>
+                                                 <label className="input-label">ID Code</label>
+                                                 <input className="input-field" placeholder="Enter ID code" value={row.faculty_id_code} onChange={e => updateBulkRow(index, 'faculty_id_code', e.target.value)} />
+                                             </div>
+                                             <div className="input-group" style={{ marginBottom: 0 }}>
+                                                 <label className="input-label">Designation</label>
+                                                 <input className="input-field" placeholder="Enter designation (e.g. Professor)" value={row.faculty_type} onChange={e => updateBulkRow(index, 'faculty_type', e.target.value)} />
+                                             </div>
+                                             <div className="input-group" style={{ marginBottom: 0 }}>
+                                                 <label className="input-label">Min</label>
+                                                 <input type="number" className="input-field" placeholder="Min load" value={row.min_hours_per_week} onChange={e => updateBulkRow(index, 'min_hours_per_week', parseInt(e.target.value) || 0)} />
+                                             </div>
+                                             <div className="input-group" style={{ marginBottom: 0 }}>
+                                                 <label className="input-label">Max</label>
+                                                 <input type="number" className="input-field" placeholder="Max load" value={row.max_hours_per_week} onChange={e => updateBulkRow(index, 'max_hours_per_week', parseInt(e.target.value) || 0)} />
+                                             </div>
+                                             <div className="input-group" style={{ marginBottom: 0 }}>
+                                                 <label className="input-label">Department Codes</label>
+                                                 <input className="input-field" placeholder="Enter department codes (e.g. CSE, ECE)" value={row.department_codes} onChange={e => updateBulkRow(index, 'department_codes', e.target.value)} />
+                                             </div>
+                                             <button className="btn" style={{ padding: '0.65rem', color: 'var(--error-color)' }} onClick={() => removeBulkRow(index)} title="Remove row">
+                                                 <Trash2 size={16} />
+                                             </button>
+                                         </div>
+                                     ))}
+                                 </div>
+                             </div>
 
                             <div style={{ marginTop: '1rem', display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
                                 <button className="btn btn-primary" onClick={submitManualBulk} disabled={bulkLoading}>
@@ -568,12 +565,7 @@ const FacultyManager = () => {
 
                             <div className="input-group">
                                 <label className="input-label">Designation</label>
-                                <select className="input-field" value={formData.faculty_type} onChange={e => setFormData({ ...formData, faculty_type: e.target.value })}>
-                                    <option value="PROFESSOR">Professor</option>
-                                    <option value="ASSISTANT_PROFESSOR">Assistant Professor</option>
-                                    <option value="LAB_INSTRUCTOR">Lab Instructor</option>
-                                    <option value="GUEST">Guest</option>
-                                </select>
+                                <input className="input-field" placeholder="Enter designation (e.g. Professor)" value={formData.faculty_type} onChange={e => setFormData({ ...formData, faculty_type: e.target.value })} />
                             </div>
 
                             <div style={{ display: 'flex', gap: '1rem' }}>

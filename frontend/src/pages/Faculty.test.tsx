@@ -68,3 +68,4 @@ describe('Faculty availability grid', () => {
         });
     });
 });
+

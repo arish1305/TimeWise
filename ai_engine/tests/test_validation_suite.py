@@ -501,9 +501,9 @@ def test_normal_subject_locked_conflict_enforced():
             ]
         }
     }
-    with pytest.raises(ValueError):
-        solver = CPSatSolver(subjects, faculty, timeslots, constraints, locked_slots)
-        solver.solve()
+    solver = CPSatSolver(subjects, faculty, timeslots, constraints, locked_slots)
+    schedule = solver.solve()
+    assert len(schedule) == 3
 
 
 def test_combined_cbcselect_locked_different_subjects_conflict_enforced():
@@ -624,5 +624,106 @@ def test_combined_cbcselect_locked_different_locked_slots_conflict_enforced():
         is_different_section=True
     )
     assert res is False
+
+
+def test_new_validation_scenarios():
+    from common.combined_class import is_shared_combined_class
+
+    # Test 1: Normal subject, same faculty, same locked slots, different sections -> Accepted.
+    sub_1 = {
+        "id": 1,
+        "is_elective": False,
+        "is_cbcs": False,
+        "manual_timeslot_ids": [5, 12, 19]
+    }
+    res_1 = is_shared_combined_class(
+        subject=sub_1,
+        conflict_subject=sub_1,
+        slot_id=5,
+        faculty_id=10,
+        conflict_faculty_id=10,
+        conflict_slot_id=5,
+        is_different_section=True
+    )
+    assert res_1 is True
+
+    # Test 2: Same subject, different faculty -> Conflict (returns False).
+    res_2 = is_shared_combined_class(
+        subject=sub_1,
+        conflict_subject=sub_1,
+        slot_id=5,
+        faculty_id=10,
+        conflict_faculty_id=11,  # different faculty
+        conflict_slot_id=5,
+        is_different_section=True
+    )
+    assert res_2 is False
+
+    # Test 3: Same faculty, different subject -> Conflict (returns False).
+    sub_2 = {
+        "id": 2,  # different subject
+        "is_elective": False,
+        "is_cbcs": False,
+        "manual_timeslot_ids": [5, 12, 19]
+    }
+    res_3 = is_shared_combined_class(
+        subject=sub_1,
+        conflict_subject=sub_2,
+        slot_id=5,
+        faculty_id=10,
+        conflict_faculty_id=10,
+        conflict_slot_id=5,
+        is_different_section=True
+    )
+    assert res_3 is False
+
+    # Test 4: Same faculty, same subject, different locked slots -> Conflict (returns False).
+    sub_3 = {
+        "id": 1,
+        "is_elective": False,
+        "is_cbcs": False,
+        "manual_timeslot_ids": [5, 12, 26]  # different locked slots
+    }
+    res_4 = is_shared_combined_class(
+        subject=sub_1,
+        conflict_subject=sub_3,
+        slot_id=5,
+        faculty_id=10,
+        conflict_faculty_id=10,
+        conflict_slot_id=5,
+        is_different_section=True
+    )
+    assert res_4 is False
+
+    # Test 5: Same faculty, same subject, no locked slots -> Conflict (returns False).
+    sub_4 = {
+        "id": 1,
+        "is_elective": False,
+        "is_cbcs": False,
+        "manual_timeslot_ids": []  # no locked slots
+    }
+    res_5 = is_shared_combined_class(
+        subject=sub_4,
+        conflict_subject=sub_4,
+        slot_id=5,
+        faculty_id=10,
+        conflict_faculty_id=10,
+        conflict_slot_id=5,
+        is_different_section=True
+    )
+    assert res_5 is False
+
+    # Test 6: Same faculty, same subject, same locked slots, same section -> Duplicate check enforced (returns False).
+    res_6 = is_shared_combined_class(
+        subject=sub_1,
+        conflict_subject=sub_1,
+        slot_id=5,
+        faculty_id=10,
+        conflict_faculty_id=10,
+        conflict_slot_id=5,
+        is_different_section=False  # same section
+    )
+    assert res_6 is False
+
 
 

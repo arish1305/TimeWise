@@ -152,9 +152,43 @@ def _entries_share_cbcs_session(left: models.TimetableEntry, right: models.Timet
     
     is_diff = (left.timetable_id != right.timetable_id)
     
+    # Resolve manual slot overrides for both sections
+    from sqlalchemy.orm import object_session
+    import datetime
+    db = object_session(left)
+    if db and left.timetable and right.timetable:
+        left_slots = resolve_manual_locked_slots(db, left.timetable.section_id, left.subject)
+        right_slots = resolve_manual_locked_slots(db, right.timetable.section_id, right.subject)
+    else:
+        left_slots = left.subject.manual_timeslot_ids or []
+        right_slots = right.subject.manual_timeslot_ids or []
+        
+    left_sub_dict = {
+        "id": left.subject.id,
+        "code": left.subject.code,
+        "name": left.subject.name,
+        "manual_timeslot_ids": left.subject.manual_timeslot_ids,
+        "resolved_manual_timeslot_ids": left_slots
+    }
+    right_sub_dict = {
+        "id": right.subject.id,
+        "code": right.subject.code,
+        "name": right.subject.name,
+        "manual_timeslot_ids": right.subject.manual_timeslot_ids,
+        "resolved_manual_timeslot_ids": right_slots
+    }
+    
+    # Resolve slot names for logger
+    slot_names = []
+    if db and left_slots:
+        db_slots = db.query(models.TimeSlot).filter(models.TimeSlot.id.in_(left_slots)).all()
+        DAY_ORDER_LIST = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+        db_slots.sort(key=lambda s: (DAY_ORDER_LIST.index(s.day) if s.day in DAY_ORDER_LIST else 99, s.start_time or datetime.time(0,0)))
+        slot_names = [s.day[:3] if s.day else str(s.id) for s in db_slots]
+        
     return is_shared_combined_class(
-        subject=left.subject,
-        conflict_subject=right.subject,
+        subject=left_sub_dict,
+        conflict_subject=right_sub_dict,
         slot_id=left.timeslot_id,
         faculty_id=left.faculty_id,
         conflict_faculty_id=right.faculty_id,
@@ -164,7 +198,8 @@ def _entries_share_cbcs_session(left: models.TimetableEntry, right: models.Timet
         subject_code=sub_code,
         subject_name=sub_name,
         current_section=sec_1,
-        conflict_section=sec_2
+        conflict_section=sec_2,
+        slot_names=slot_names
     )
 
 
@@ -341,13 +376,45 @@ def _is_faculty_conflict_for_slot(
                 sub_code = subject.code
                 sub_name = subject.name
                 sec_1 = db.query(models.Timetable).get(timetable_id)
+                
+                # Resolve overrides and slots day names
+                import datetime
+                sec_1_id = sec_1.section_id if sec_1 else None
+                sec_2_id = conflict.timetable.section_id if conflict.timetable else None
+                
+                left_slots = resolve_manual_locked_slots(db, sec_1_id, subject) if sec_1_id else (subject.manual_timeslot_ids or [])
+                right_slots = resolve_manual_locked_slots(db, sec_2_id, conflict.subject) if sec_2_id else (conflict.subject.manual_timeslot_ids or [])
+                
+                left_sub_dict = {
+                    "id": subject.id,
+                    "code": subject.code,
+                    "name": subject.name,
+                    "manual_timeslot_ids": subject.manual_timeslot_ids,
+                    "resolved_manual_timeslot_ids": left_slots
+                }
+                right_sub_dict = {
+                    "id": conflict.subject.id,
+                    "code": conflict.subject.code,
+                    "name": conflict.subject.name,
+                    "manual_timeslot_ids": conflict.subject.manual_timeslot_ids,
+                    "resolved_manual_timeslot_ids": right_slots
+                }
+                
+                # Resolve slot names for logger
+                slot_names = []
+                if left_slots:
+                    db_slots = db.query(models.TimeSlot).filter(models.TimeSlot.id.in_(left_slots)).all()
+                    DAY_ORDER_LIST = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+                    db_slots.sort(key=lambda s: (DAY_ORDER_LIST.index(s.day) if s.day in DAY_ORDER_LIST else 99, s.start_time or datetime.time(0,0)))
+                    slot_names = [s.day[:3] if s.day else str(s.id) for s in db_slots]
+                
                 sec_1_name = sec_1.section.name if (sec_1 and sec_1.section) else "Unknown"
                 sec_2_name = conflict.timetable.section.name if (conflict.timetable and conflict.timetable.section) else "Unknown"
                 is_diff = (timetable_id != conflict.timetable_id)
                 
                 bypassed = is_shared_combined_class(
-                    subject=subject,
-                    conflict_subject=conflict.subject,
+                    subject=left_sub_dict,
+                    conflict_subject=right_sub_dict,
                     slot_id=slot_id,
                     faculty_id=faculty_id,
                     conflict_faculty_id=conflict.faculty_id,
@@ -357,7 +424,8 @@ def _is_faculty_conflict_for_slot(
                     subject_code=sub_code,
                     subject_name=sub_name,
                     current_section=sec_1_name,
-                    conflict_section=sec_2_name
+                    conflict_section=sec_2_name,
+                    slot_names=slot_names
                 )
                 if not bypassed:
                     all_bypassed = False
@@ -653,13 +721,42 @@ def _faculty_can_take_slot_for_entry(
         fac_name = entry.faculty.name if entry.faculty else "Unknown"
         sub_code = current_subject.code
         sub_name = current_subject.name
+        
+        # Resolve overrides and slots day names
+        import datetime
+        left_slots = resolve_manual_locked_slots(db, timetable.section_id, current_subject) if (timetable and timetable.section_id) else (current_subject.manual_timeslot_ids or [])
+        right_slots = resolve_manual_locked_slots(db, conflict.timetable.section_id, conflict.subject) if (conflict.timetable and conflict.timetable.section_id) else (conflict.subject.manual_timeslot_ids or [])
+        
+        left_sub_dict = {
+            "id": current_subject.id,
+            "code": current_subject.code,
+            "name": current_subject.name,
+            "manual_timeslot_ids": current_subject.manual_timeslot_ids,
+            "resolved_manual_timeslot_ids": left_slots
+        }
+        right_sub_dict = {
+            "id": conflict.subject.id,
+            "code": conflict.subject.code,
+            "name": conflict.subject.name,
+            "manual_timeslot_ids": conflict.subject.manual_timeslot_ids,
+            "resolved_manual_timeslot_ids": right_slots
+        }
+        
+        # Resolve slot names for logger
+        slot_names = []
+        if left_slots:
+            db_slots = db.query(models.TimeSlot).filter(models.TimeSlot.id.in_(left_slots)).all()
+            DAY_ORDER_LIST = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+            db_slots.sort(key=lambda s: (DAY_ORDER_LIST.index(s.day) if s.day in DAY_ORDER_LIST else 99, s.start_time or datetime.time(0,0)))
+            slot_names = [s.day[:3] if s.day else str(s.id) for s in db_slots]
+            
         sec_1 = timetable.section.name if (timetable and timetable.section) else "Unknown"
         sec_2 = conflict.timetable.section.name if (conflict.timetable and conflict.timetable.section) else "Unknown"
         is_diff = (timetable.id != conflict.timetable_id)
         
         bypassed = is_shared_combined_class(
-            subject=current_subject,
-            conflict_subject=conflict.subject,
+            subject=left_sub_dict,
+            conflict_subject=right_sub_dict,
             slot_id=candidate_slot_id,
             faculty_id=entry.faculty_id,
             conflict_faculty_id=conflict.faculty_id,
@@ -669,7 +766,8 @@ def _faculty_can_take_slot_for_entry(
             subject_code=sub_code,
             subject_name=sub_name,
             current_section=sec_1,
-            conflict_section=sec_2
+            conflict_section=sec_2,
+            slot_names=slot_names
         )
         if not bypassed:
             all_bypassed = False

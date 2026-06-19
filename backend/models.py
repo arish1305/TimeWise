@@ -245,3 +245,23 @@ class TimetableEditEvent(Base):
     timetable = relationship("Timetable")
     entry = relationship("TimetableEntry")
     editor = relationship("User")
+
+
+class SectionSubjectLock(Base):
+    __tablename__ = "section_subject_locks"
+    __table_args__ = (
+        UniqueConstraint("section_id", "subject_id", name="uq_section_subject_lock"),
+    )
+    id = Column(Integer, primary_key=True, index=True)
+    section_id = Column(Integer, ForeignKey("sections.id"), nullable=False)
+    subject_id = Column(Integer, ForeignKey("subjects.id"), nullable=False)
+    manual_timeslot_ids = Column(JSON, default=list)
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    section = relationship("Section")
+    subject = relationship("Subject")
+    creator = relationship("User")
+

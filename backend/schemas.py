@@ -372,3 +372,25 @@ class SchedulingRule(SchedulingRuleBase):
 
     class Config:
         from_attributes = True
+
+
+class SectionSubjectLockBase(BaseModel):
+    section_id: int
+    subject_id: int
+    manual_timeslot_ids: List[int] = []
+
+
+class SectionSubjectLockCreate(SectionSubjectLockBase):
+    pass
+
+
+class SectionSubjectLockResponse(SectionSubjectLockBase):
+    id: int
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+    created_by: Optional[int] = None
+
+    class Config:
+        from_attributes = True
+

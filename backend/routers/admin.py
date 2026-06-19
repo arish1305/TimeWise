@@ -1185,3 +1185,103 @@ def delete_faculty_assignment(faculty_id: int, assignment_id: int, db: Session =
     db.delete(db_assignment)
     db.commit()
     return {"message": "Assignment deleted"}
+
+
+# --- Section Subject Locks ---
+
+@router.post("/section-subject-locks", response_model=schemas.SectionSubjectLockResponse)
+def save_section_subject_lock(
+    payload: schemas.SectionSubjectLockCreate,
+    db: Session = Depends(database.get_db),
+    current_user = Depends(auth.require_admin)
+):
+    # 1. Verify section exists
+    section = db.query(models.Section).filter(models.Section.id == payload.section_id).first()
+    if not section:
+        raise HTTPException(status_code=400, detail="Section does not exist")
+        
+    # 2. Verify subject exists
+    subject = db.query(models.Subject).filter(models.Subject.id == payload.subject_id).first()
+    if not subject:
+        raise HTTPException(status_code=400, detail="Subject does not exist")
+
+    # 3. Verify Subject belongs to selected section's semester
+    if not section.academic_year:
+        raise HTTPException(status_code=400, detail="Section academic year not found")
+    allowed_semesters = [2 * section.academic_year.level - 1, 2 * section.academic_year.level]
+    if subject.semester not in allowed_semesters:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Subject semester {subject.semester} does not belong to section's semester group (allowed semesters: {allowed_semesters})"
+        )
+
+    # 4. Verify Selected timeslots exist
+    if payload.manual_timeslot_ids:
+        db_timeslots = db.query(models.TimeSlot).filter(models.TimeSlot.id.in_(payload.manual_timeslot_ids)).all()
+        if len(db_timeslots) != len(payload.manual_timeslot_ids):
+            raise HTTPException(status_code=400, detail="One or more selected timeslots do not exist")
+
+    # 5. Verify No duplicate timeslots
+    if len(payload.manual_timeslot_ids) != len(set(payload.manual_timeslot_ids)):
+        raise HTTPException(status_code=400, detail="Duplicate timeslots are not allowed")
+
+    # Only one override should exist for a given section_id * subject_id
+    # If another override is saved, update the existing record. Do not create duplicates.
+    lock = db.query(models.SectionSubjectLock).filter(
+        models.SectionSubjectLock.section_id == payload.section_id,
+        models.SectionSubjectLock.subject_id == payload.subject_id
+    ).first()
+
+    user_id = getattr(current_user, "user_id", None)
+
+    if lock:
+        lock.manual_timeslot_ids = payload.manual_timeslot_ids
+        lock.is_active = True
+        lock.created_by = user_id
+    else:
+        lock = models.SectionSubjectLock(
+            section_id=payload.section_id,
+            subject_id=payload.subject_id,
+            manual_timeslot_ids=payload.manual_timeslot_ids,
+            is_active=True,
+            created_by=user_id
+        )
+        db.add(lock)
+        
+    db.commit()
+    db.refresh(lock)
+    return lock
+
+
+@router.get("/section-subject-locks/section/{section_id}/subject/{subject_id}", response_model=schemas.SectionSubjectLockResponse)
+def get_section_subject_lock(
+    section_id: int,
+    subject_id: int,
+    db: Session = Depends(database.get_db)
+):
+    lock = db.query(models.SectionSubjectLock).filter(
+        models.SectionSubjectLock.section_id == section_id,
+        models.SectionSubjectLock.subject_id == subject_id,
+        models.SectionSubjectLock.is_active == True
+    ).first()
+    if not lock:
+        raise HTTPException(status_code=404, detail="Section subject lock override not found")
+    return lock
+
+
+@router.delete("/section-subject-locks/section/{section_id}/subject/{subject_id}")
+def delete_section_subject_lock(
+    section_id: int,
+    subject_id: int,
+    db: Session = Depends(database.get_db)
+):
+    lock = db.query(models.SectionSubjectLock).filter(
+        models.SectionSubjectLock.section_id == section_id,
+        models.SectionSubjectLock.subject_id == subject_id
+    ).first()
+    if not lock:
+        raise HTTPException(status_code=404, detail="Section subject lock override not found")
+    db.delete(lock)
+    db.commit()
+    return {"message": "Section subject lock override deleted"}
+

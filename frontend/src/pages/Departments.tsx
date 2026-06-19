@@ -77,6 +77,157 @@ const Departments = () => {
         lunch_end: '12:15',
     };
 
+    // Section-Level Subject Time Lock Overrides States
+    const [overrideDeptId, setOverrideDeptId] = useState<number | ''>('');
+    const [overrideSemester, setOverrideSemester] = useState<number | ''>('');
+    const [overrideSectionId, setOverrideSectionId] = useState<number | ''>('');
+    const [overrideSubjectId, setOverrideSubjectId] = useState<number | ''>('');
+
+    const [overrideSections, setOverrideSections] = useState<Section[]>([]);
+    const [overrideSubjects, setOverrideSubjects] = useState<Subject[]>([]);
+
+    const [lockStatus, setLockStatus] = useState<'default' | 'override' | null>(null);
+    const [selectedOverrideSlots, setSelectedOverrideSlots] = useState<number[]>([]);
+
+    const loadOverrideSections = async (deptId: number, semesterNum: number) => {
+        const level = Math.ceil(semesterNum / 2);
+        const dept = departments.find(d => d.id === deptId);
+        if (!dept) return;
+
+        const matchingYears = dept.years?.filter(y => y.level === level) || [];
+        if (matchingYears.length === 0) {
+            setOverrideSections([]);
+            return;
+        }
+
+        try {
+            const sectionsPromises = matchingYears.map(async (y) => {
+                const res = await api.get(`/admin/sections?year_id=${y.id}`);
+                return res.data as Section[];
+            });
+            const sectionsResults = await Promise.all(sectionsPromises);
+            setOverrideSections(sectionsResults.flat());
+        } catch (err) {
+            console.error("Failed to load sections for override", err);
+            setOverrideSections([]);
+        }
+    };
+
+    const fetchLockOverride = async (sectionId: number, subjectId: number) => {
+        try {
+            const res = await api.get(`/admin/section-subject-locks/section/${sectionId}/subject/${subjectId}`);
+            if (res.data) {
+                setLockStatus('override');
+                setSelectedOverrideSlots(res.data.manual_timeslot_ids || []);
+            }
+        } catch (err: any) {
+            if (err.response && err.response.status === 404) {
+                setLockStatus('default');
+                const sub = overrideSubjects.find(s => s.id === subjectId);
+                setSelectedOverrideSlots(sub?.manual_timeslot_ids || []);
+            } else {
+                console.error("Failed to fetch lock override", err);
+            }
+        }
+    };
+
+    const handleOverrideDeptChange = async (deptId: number | '') => {
+        setOverrideDeptId(deptId);
+        setOverrideSemester('');
+        setOverrideSectionId('');
+        setOverrideSubjectId('');
+        setOverrideSections([]);
+        setOverrideSubjects([]);
+        setLockStatus(null);
+        setSelectedOverrideSlots([]);
+
+        if (deptId) {
+            if (!departmentSlots[deptId]) {
+                fetchDepartmentSlots(deptId);
+            }
+            const dept = departments.find(d => d.id === deptId);
+            if (!dept?.years) {
+                await fetchYears(deptId);
+            }
+        }
+    };
+
+    const handleOverrideSemesterChange = async (semesterNum: number | '') => {
+        setOverrideSemester(semesterNum);
+        setOverrideSectionId('');
+        setOverrideSubjectId('');
+        setOverrideSections([]);
+        setOverrideSubjects([]);
+        setLockStatus(null);
+        setSelectedOverrideSlots([]);
+
+        if (overrideDeptId && semesterNum) {
+            await loadOverrideSections(Number(overrideDeptId), semesterNum);
+
+            const dept = departments.find(d => d.id === overrideDeptId);
+            let subjects = dept?.subjects || [];
+            if (subjects.length === 0) {
+                try {
+                    const res = await api.get(`/admin/subjects?department_id=${overrideDeptId}`);
+                    subjects = res.data;
+                    setDepartments(prev => prev.map(d => d.id === overrideDeptId ? { ...d, subjects: res.data } : d));
+                } catch (err) {
+                    console.error("Failed to load subjects", err);
+                }
+            }
+            setOverrideSubjects(subjects.filter(s => s.semester === semesterNum));
+        }
+    };
+
+    const handleOverrideSectionChange = (sectionId: number | '') => {
+        setOverrideSectionId(sectionId);
+        setOverrideSubjectId('');
+        setLockStatus(null);
+        setSelectedOverrideSlots([]);
+    };
+
+    const handleOverrideSubjectChange = async (subjectId: number | '') => {
+        setOverrideSubjectId(subjectId);
+        if (overrideSectionId && subjectId) {
+            await fetchLockOverride(Number(overrideSectionId), subjectId);
+        } else {
+            setLockStatus(null);
+            setSelectedOverrideSlots([]);
+        }
+    };
+
+    const saveLockOverride = async () => {
+        if (!overrideSectionId || !overrideSubjectId) return;
+        try {
+            const payload = {
+                section_id: Number(overrideSectionId),
+                subject_id: Number(overrideSubjectId),
+                manual_timeslot_ids: selectedOverrideSlots
+            };
+            await api.post('/admin/section-subject-locks', payload);
+            alert("Section subject lock override saved successfully.");
+            setLockStatus('override');
+        } catch (err: any) {
+            console.error(err);
+            alert(`Failed to save override: ${err.response?.data?.detail || err.message}`);
+        }
+    };
+
+    const resetLockOverride = async () => {
+        if (!overrideSectionId || !overrideSubjectId) return;
+        if (!window.confirm("Are you sure you want to reset this section lock to the department default?")) return;
+        try {
+            await api.delete(`/admin/section-subject-locks/section/${overrideSectionId}/subject/${overrideSubjectId}`);
+            alert("Reset to department default successfully.");
+            setLockStatus('default');
+            const sub = overrideSubjects.find(s => s.id === overrideSubjectId);
+            setSelectedOverrideSlots(sub?.manual_timeslot_ids || []);
+        } catch (err: any) {
+            console.error(err);
+            alert(`Failed to reset override: ${err.response?.data?.detail || err.message}`);
+        }
+    };
+
     useEffect(() => {
         fetchDepartments();
     }, []);
@@ -884,6 +1035,197 @@ const Departments = () => {
                         </AnimatePresence>
                     </div>
                 ))}
+            </div>
+
+            {/* Section Subject Overrides Card */}
+            <div className="card" style={{ marginTop: '2.5rem', borderLeft: '4px solid var(--primary-500)', padding: '2rem', background: '#ffffff', borderRadius: '12px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.5rem', borderBottom: '1px solid #f1f5f9', paddingBottom: '1rem' }}>
+                    <div style={{ padding: '0.5rem', background: 'var(--primary-50)', borderRadius: '8px', color: 'var(--primary-600)' }}>
+                        <Layers size={24} />
+                    </div>
+                    <div>
+                        <h3 style={{ fontSize: '1.25rem', fontWeight: 800, margin: 0, color: 'var(--text-main)' }}>Section Subject Overrides</h3>
+                        <p style={{ margin: '0.25rem 0 0', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                            Override department default locked timeslots for a specific section.
+                        </p>
+                    </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
+                    {/* Department Select */}
+                    <div className="input-group" style={{ marginBottom: 0 }}>
+                        <label className="input-label" style={{ fontWeight: 600, color: '#475569' }}>Department</label>
+                        <select
+                            className="input-field"
+                            value={overrideDeptId}
+                            onChange={e => handleOverrideDeptChange(e.target.value === '' ? '' : Number(e.target.value))}
+                            style={{ width: '100%', height: '42px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
+                        >
+                            <option value="">Select Department</option>
+                            {departments.map(d => (
+                                <option key={d.id} value={d.id}>{d.code} - {d.name}</option>
+                            ))}
+                        </select>
+                    </div>
+
+                    {/* Semester Select */}
+                    <div className="input-group" style={{ marginBottom: 0 }}>
+                        <label className="input-label" style={{ fontWeight: 600, color: '#475569' }}>Semester</label>
+                        <select
+                            className="input-field"
+                            value={overrideSemester}
+                            onChange={e => handleOverrideSemesterChange(e.target.value === '' ? '' : Number(e.target.value))}
+                            disabled={!overrideDeptId}
+                            style={{ width: '100%', height: '42px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
+                        >
+                            <option value="">Select Semester</option>
+                            {[1, 2, 3, 4, 5, 6, 7, 8].map(sem => (
+                                <option key={sem} value={sem}>Semester {sem}</option>
+                            ))}
+                        </select>
+                    </div>
+
+                    {/* Section Select */}
+                    <div className="input-group" style={{ marginBottom: 0 }}>
+                        <label className="input-label" style={{ fontWeight: 600, color: '#475569' }}>Section</label>
+                        <select
+                            className="input-field"
+                            value={overrideSectionId}
+                            onChange={e => handleOverrideSectionChange(e.target.value === '' ? '' : Number(e.target.value))}
+                            disabled={!overrideSemester || overrideSections.length === 0}
+                            style={{ width: '100%', height: '42px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
+                        >
+                            <option value="">
+                                {overrideSemester ? (overrideSections.length === 0 ? 'No Sections Available' : 'Select Section') : 'Select Section'}
+                            </option>
+                            {overrideSections.map(sec => (
+                                <option key={sec.id} value={sec.id}>{sec.name}</option>
+                            ))}
+                        </select>
+                    </div>
+
+                    {/* Subject Select */}
+                    <div className="input-group" style={{ marginBottom: 0 }}>
+                        <label className="input-label" style={{ fontWeight: 600, color: '#475569' }}>Subject</label>
+                        <select
+                            className="input-field"
+                            value={overrideSubjectId}
+                            onChange={e => handleOverrideSubjectChange(e.target.value === '' ? '' : Number(e.target.value))}
+                            disabled={!overrideSectionId || overrideSubjects.length === 0}
+                            style={{ width: '100%', height: '42px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
+                        >
+                            <option value="">
+                                {overrideSectionId ? (overrideSubjects.length === 0 ? 'No Subjects in Semester' : 'Select Subject') : 'Select Subject'}
+                            </option>
+                            {overrideSubjects.map(sub => (
+                                <option key={sub.id} value={sub.id}>{sub.code} - {sub.name}</option>
+                            ))}
+                        </select>
+                    </div>
+                </div>
+
+                {/* Timeslots override configuration */}
+                {overrideSectionId && overrideSubjectId && lockStatus && (
+                    <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', padding: '1.5rem', background: '#f8fafc' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
+                            <div>
+                                <span style={{ fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', display: 'block', fontWeight: 600 }}>Configuration Status</span>
+                                <span style={{ 
+                                    display: 'inline-flex', 
+                                    alignItems: 'center', 
+                                    gap: '0.375rem', 
+                                    fontSize: '0.95rem', 
+                                    fontWeight: 700, 
+                                    marginTop: '0.25rem',
+                                    color: lockStatus === 'override' ? 'var(--primary-600)' : 'var(--text-secondary)'
+                                }}>
+                                    <span style={{ 
+                                        width: 8, 
+                                        height: 8, 
+                                        borderRadius: '50%', 
+                                        background: lockStatus === 'override' ? 'var(--primary-500)' : '#94a3b8' 
+                                    }} />
+                                    {lockStatus === 'override' ? 'Uses Section Override' : 'Uses Department Default'}
+                                </span>
+                            </div>
+                            
+                            <div style={{ display: 'flex', gap: '0.75rem' }}>
+                                {lockStatus === 'override' && (
+                                    <button 
+                                        className="btn" 
+                                        onClick={resetLockOverride}
+                                        style={{ borderColor: 'var(--error-color)', color: 'var(--error-color)', padding: '0.5rem 1rem' }}
+                                    >
+                                        Reset to Department Default
+                                    </button>
+                                )}
+                                <button 
+                                    className="btn btn-primary" 
+                                    onClick={saveLockOverride}
+                                    style={{ padding: '0.5rem 1.5rem' }}
+                                >
+                                    Save Override
+                                </button>
+                            </div>
+                        </div>
+
+                        <div>
+                            <label style={{ fontSize: '0.9rem', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '0.75rem' }}>
+                                Toggle Locked Slots for this Section
+                            </label>
+                            
+                            {/* Grouped by Day Timeslots grid */}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                                {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map(day => {
+                                    const daySlots = (departmentSlots[Number(overrideDeptId)] || []).filter(t => t.day === day && !t.is_break);
+                                    if (daySlots.length === 0) return null;
+                                    
+                                    return (
+                                        <div key={day} style={{ display: 'flex', alignItems: 'center', borderBottom: '1px solid #f1f5f9', paddingBottom: '0.5rem', gap: '1rem' }}>
+                                            <div style={{ width: '90px', fontWeight: 600, color: '#475569', fontSize: '0.85rem' }}>
+                                                {day}
+                                            </div>
+                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.375rem', flex: 1 }}>
+                                                {daySlots.map(t => {
+                                                    const isSelected = selectedOverrideSlots.includes(t.id);
+                                                    return (
+                                                        <button
+                                                            key={t.id}
+                                                            type="button"
+                                                            onClick={() => {
+                                                                if (isSelected) {
+                                                                    setSelectedOverrideSlots(selectedOverrideSlots.filter(id => id !== t.id));
+                                                                } else {
+                                                                    setSelectedOverrideSlots([...selectedOverrideSlots, t.id]);
+                                                                }
+                                                            }}
+                                                            style={{
+                                                                fontSize: '0.78rem',
+                                                                padding: '0.375rem 0.75rem',
+                                                                borderRadius: '20px',
+                                                                cursor: 'pointer',
+                                                                background: isSelected 
+                                                                    ? 'linear-gradient(135deg, var(--primary-500), var(--primary-600))' 
+                                                                    : '#f1f5f9',
+                                                                color: isSelected ? 'white' : 'var(--text-secondary)',
+                                                                border: 'none',
+                                                                boxShadow: isSelected ? '0 2px 4px rgba(99, 102, 241, 0.2)' : 'none',
+                                                                fontWeight: isSelected ? 600 : 500,
+                                                                transition: 'all 0.15s ease-in-out'
+                                                            }}
+                                                        >
+                                                            {formatTime12Hour(t.start_time)}
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
     );

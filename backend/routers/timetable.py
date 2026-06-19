@@ -74,6 +74,60 @@ def _is_cbcs_subject(subject: Optional[models.Subject]) -> bool:
     return bool(allowed_departments)
 
 
+def resolve_manual_locked_slots(db: Session, section_id: int, subject: models.Subject) -> List[int]:
+    from datetime import time
+    override = db.query(models.SectionSubjectLock).filter(
+        models.SectionSubjectLock.section_id == section_id,
+        models.SectionSubjectLock.subject_id == subject.id,
+        models.SectionSubjectLock.is_active == True
+    ).first()
+    
+    if override:
+        source = "Section Override"
+        slots = override.manual_timeslot_ids or []
+    else:
+        source = "Department Default"
+        slots = subject.manual_timeslot_ids or []
+        
+    # Resolve timeslots for log formatting
+    slot_strs = []
+    if slots:
+        db_slots = db.query(models.TimeSlot).filter(models.TimeSlot.id.in_(slots)).all()
+        # Sort them day/time to make it ordered and deterministic
+        DAY_ORDER_LIST = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+        db_slots.sort(key=lambda s: (DAY_ORDER_LIST.index(s.day) if s.day in DAY_ORDER_LIST else 99, s.start_time or time(0,0)))
+        for ds in db_slots:
+            day_short = ds.day[:3] if ds.day else ""
+            if ds.start_time:
+                hr = ds.start_time.hour
+                hr_12 = hr % 12
+                if hr_12 == 0:
+                    hr_12 = 12
+                slot_strs.append(f"{day_short} {hr_12}")
+            else:
+                slot_strs.append(f"{day_short} Unknown")
+
+    section = db.query(models.Section).get(section_id)
+    dept_code = ""
+    sec_name = ""
+    if section:
+        sec_name = section.name
+        if section.academic_year and section.academic_year.department:
+            dept_code = section.academic_year.department.code
+            
+    section_label = f"{dept_code} {sec_name}".strip()
+    
+    logger.info(
+        "Section\n%s\nSubject\n%s\nLock Source\n%s\nSlots\n%s",
+        section_label,
+        subject.name,
+        source,
+        ", ".join(slot_strs) if slot_strs else "None"
+    )
+    
+    return slots
+
+
 def _query_department_timeslots(db: Session, department_id: int, include_breaks: bool = False):
     q = db.query(models.TimeSlot).filter(models.TimeSlot.department_id == department_id)
     if not include_breaks:
@@ -114,7 +168,7 @@ def _entries_share_cbcs_session(left: models.TimetableEntry, right: models.Timet
     )
 
 
-def _subject_overlap_group_key(subject: Optional[models.Subject], timeslot_id: Optional[int]) -> Optional[str]:
+def _subject_overlap_group_key(db: Session, subject: Optional[models.Subject], timeslot_id: Optional[int], section_id: Optional[int] = None) -> Optional[str]:
     if not subject or not subject.is_elective:
         return None
 
@@ -122,13 +176,16 @@ def _subject_overlap_group_key(subject: Optional[models.Subject], timeslot_id: O
     if group_id:
         return f"G:{group_id}"
 
-    manual_slots = getattr(subject, "manual_timeslot_ids", []) or []
+    if section_id:
+        manual_slots = resolve_manual_locked_slots(db, section_id, subject)
+    else:
+        manual_slots = getattr(subject, "manual_timeslot_ids", []) or []
     if timeslot_id in manual_slots:
         return f"M:{timeslot_id}"
     return None
 
 
-def _entries_can_overlap_in_section(entries: List[models.TimetableEntry]) -> bool:
+def _entries_can_overlap_in_section(db: Session, entries: List[models.TimetableEntry]) -> bool:
     subject_ids = [entry.subject_id for entry in entries if entry.subject_id]
     if len(subject_ids) != len(set(subject_ids)):
         return False
@@ -141,7 +198,8 @@ def _entries_can_overlap_in_section(entries: List[models.TimetableEntry]) -> boo
     for entry in entries:
         if not entry.subject:
             return False
-        group_key = _subject_overlap_group_key(entry.subject, slot_id)
+        section_id = entry.timetable.section_id if entry.timetable else None
+        group_key = _subject_overlap_group_key(db, entry.subject, slot_id, section_id)
         if not group_key:
             return False
         group_keys.add(group_key)
@@ -780,7 +838,7 @@ def validate_timetable_internal(timetable: models.Timetable, db: Session, rules:
             
     for ts_id, entries in section_slots.items():
         if len(entries) > 1:
-            if not _entries_can_overlap_in_section(entries):
+            if not _entries_can_overlap_in_section(db, entries):
                 errors.append("Section conflict: Multiple unrelated subjects overlap in a single timeslot.")
                 error_slots.append(ts_id)
 
@@ -902,13 +960,13 @@ def generate_timetable(
         ) -> bool:
             if not existing_entries:
                 return True
-            current_group_key = _subject_overlap_group_key(subject_obj, timeslot_id)
+            current_group_key = _subject_overlap_group_key(db, subject_obj, timeslot_id, request.section_id)
             if not current_group_key:
                 return False
 
             for existing in existing_entries:
                 existing_subject = get_subject(existing.get("subject_id"))
-                existing_group_key = _subject_overlap_group_key(existing_subject, timeslot_id)
+                existing_group_key = _subject_overlap_group_key(db, existing_subject, timeslot_id, request.section_id)
                 if (
                     not existing_subject
                     or not existing_group_key
@@ -1007,7 +1065,7 @@ def generate_timetable(
 
         # Sync manual slots from Subject definitions
         for s in subjects_db:
-            m_slots = getattr(s, 'manual_timeslot_ids', []) or []
+            m_slots = resolve_manual_locked_slots(db, request.section_id, s)
             if m_slots:
                 f_id = subject_faculty_ids.get(s.id)
                 for ts_id in m_slots:
@@ -1103,6 +1161,7 @@ def generate_timetable(
             fid = subject_faculty_ids.get(s.id)
             if fid: faculty_ids.add(fid)
                 
+            resolved_slots = resolve_manual_locked_slots(db, request.section_id, s)
             subjects_payload.append({
                 "id": s.id,
                 "name": s.name,
@@ -1115,7 +1174,7 @@ def generate_timetable(
                 "elective_group_id": s.elective_group_id,
                 "is_cbcs_shared": _is_cbcs_subject(s),
                 "is_cbcs": _is_cbcs_subject(s) or s.is_elective,
-                "manual_timeslot_ids": s.manual_timeslot_ids or [],
+                "manual_timeslot_ids": resolved_slots,
             })
 
         faculty_id_list = sorted(faculty_ids)

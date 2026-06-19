@@ -281,6 +281,22 @@ def register_hard_constraints(
                         prior_subj = subjects_by_id.get(prior_sid)
                         if prior_subj:
                             conflict_sec = fac_prior_section_names.get(pfid, {}).get(tid, {}).get(prior_sid, "Unknown")
+                            
+                            # Resolve slot names for logger
+                            slot_names = []
+                            subj_slots = subj.get("resolved_manual_timeslot_ids")
+                            if subj_slots is None:
+                                subj_slots = subj.get("manual_timeslot_ids") or []
+                            subj_slots = [int(s) for s in subj_slots if s is not None]
+                            if subj_slots:
+                                DAY_ORDER_LIST = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+                                matched_slots = [timeslots_by_id[s_id] for s_id in subj_slots if s_id in timeslots_by_id]
+                                matched_slots.sort(key=lambda t: (
+                                    DAY_ORDER_LIST.index(t.get("day", "").capitalize()) if t.get("day", "").capitalize() in DAY_ORDER_LIST else 99,
+                                    t.get("time") or ""
+                                ))
+                                slot_names = [t.get("day", "")[:3].capitalize() if t.get("day") else str(t["id"]) for t in matched_slots]
+
                             is_bypassed = is_shared_combined_class(
                                 subject=subj,
                                 conflict_subject=prior_subj,
@@ -293,7 +309,8 @@ def register_hard_constraints(
                                 subject_code=subj.get("code") or str(subj["id"]),
                                 subject_name=subj.get("name") or "Unknown",
                                 current_section=constraints.get("section_name") or "Unknown",
-                                conflict_section=conflict_sec
+                                conflict_section=conflict_sec,
+                                slot_names=slot_names
                             )
                             if is_bypassed:
                                 break

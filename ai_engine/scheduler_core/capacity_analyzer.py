@@ -149,6 +149,22 @@ def analyze_capacity(
                 s = subjects_by_id.get(prior_sid)
                 if s and parse_fid(s.get("faculty_id")) == pfid:
                     conflict_sec = fac_prior_section_names.get(pfid, {}).get(ts_id, {}).get(prior_sid, "Unknown")
+                    
+                    # Resolve slot names for logger
+                    slot_names = []
+                    subj_slots = s.get("resolved_manual_timeslot_ids")
+                    if subj_slots is None:
+                        subj_slots = s.get("manual_timeslot_ids") or []
+                    subj_slots = [int(slot_id) for slot_id in subj_slots if slot_id is not None]
+                    if subj_slots:
+                        DAY_ORDER_LIST = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+                        matched_slots = [timeslots_by_id[s_id] for s_id in subj_slots if s_id in timeslots_by_id]
+                        matched_slots.sort(key=lambda t: (
+                            DAY_ORDER_LIST.index(t.get("day", "").capitalize()) if t.get("day", "").capitalize() in DAY_ORDER_LIST else 99,
+                            t.get("time") or ""
+                        ))
+                        slot_names = [t.get("day", "")[:3].capitalize() if t.get("day") else str(t["id"]) for t in matched_slots]
+
                     if is_shared_combined_class(
                         subject=s,
                         conflict_subject=s,
@@ -161,7 +177,8 @@ def analyze_capacity(
                         subject_code=s.get("code") or str(s["id"]),
                         subject_name=s.get("name") or "Unknown",
                         current_section=constraints.get("section_name") or "Unknown",
-                        conflict_section=conflict_sec
+                        conflict_section=conflict_sec,
+                        slot_names=slot_names
                     ):
                         is_combined_bypass = True
                         break

@@ -392,3 +392,237 @@ def test_lab_subject_continuous_redefinition_4_hours():
     counts = sorted(list(day_counts.values()))
     assert counts == [1, 1, 2]
 
+
+def test_combined_cbcselect_locked_same_faculty_succeeds():
+    timeslots = _build_base_timeslots()
+    subjects = [
+        {
+            "id": 1,
+            "name": "5G Networks",
+            "weekly_hours": 3,
+            "continuous_hours": 1,
+            "faculty_id": 10,
+            "is_elective": True,
+            "is_cbcs": True,
+            "manual_timeslot_ids": [5, 12, 19]
+        }
+    ]
+    faculty = [{"id": 10, "name": "Ms. R. Abirami"}]
+    locked_slots = [
+        {"subject_id": 1, "timeslot_id": 5, "faculty_id": 10},
+        {"subject_id": 1, "timeslot_id": 12, "faculty_id": 10},
+        {"subject_id": 1, "timeslot_id": 19, "faculty_id": 10}
+    ]
+    constraints = {
+        "random_seed": 42,
+        "section_name": "A2",
+        "prior_commitments": {10: [5, 12, 19]},
+        "prior_commitment_entries": {
+            10: [
+                {"timeslot_id": 5, "subject_id": 1, "section_name": "A1"},
+                {"timeslot_id": 12, "subject_id": 1, "section_name": "A1"},
+                {"timeslot_id": 19, "subject_id": 1, "section_name": "A1"}
+            ]
+        }
+    }
+    solver = CPSatSolver(subjects, faculty, timeslots, constraints, locked_slots)
+    schedule = solver.solve()
+    assert len(schedule) == 3
+    scheduled_slots = {e["timeslot_id"] for e in schedule}
+    assert scheduled_slots == {5, 12, 19}
+
+
+def test_combined_cbcselect_unlocked_conflict_enforced():
+    timeslots = _build_base_timeslots()
+    subjects = [
+        {
+            "id": 1,
+            "name": "5G Networks",
+            "weekly_hours": 3,
+            "continuous_hours": 1,
+            "faculty_id": 10,
+            "is_elective": True,
+            "is_cbcs": True,
+            "manual_timeslot_ids": []
+        }
+    ]
+    faculty = [{"id": 10, "name": "Ms. R. Abirami"}]
+    locked_slots = [
+        {"subject_id": 1, "timeslot_id": 5, "faculty_id": 10},
+        {"subject_id": 1, "timeslot_id": 12, "faculty_id": 10},
+        {"subject_id": 1, "timeslot_id": 19, "faculty_id": 10}
+    ]
+    constraints = {
+        "random_seed": 42,
+        "section_name": "A2",
+        "prior_commitments": {10: [5, 12, 19]},
+        "prior_commitment_entries": {
+            10: [
+                {"timeslot_id": 5, "subject_id": 1, "section_name": "A1"},
+                {"timeslot_id": 12, "subject_id": 1, "section_name": "A1"},
+                {"timeslot_id": 19, "subject_id": 1, "section_name": "A1"}
+            ]
+        }
+    }
+    with pytest.raises(ValueError):
+        solver = CPSatSolver(subjects, faculty, timeslots, constraints, locked_slots)
+        solver.solve()
+
+
+def test_normal_subject_locked_conflict_enforced():
+    timeslots = _build_base_timeslots()
+    subjects = [
+        {
+            "id": 1,
+            "name": "5G Networks",
+            "weekly_hours": 3,
+            "continuous_hours": 1,
+            "faculty_id": 10,
+            "is_elective": False,
+            "is_cbcs": False,
+            "manual_timeslot_ids": [5, 12, 19]
+        }
+    ]
+    faculty = [{"id": 10, "name": "Ms. R. Abirami"}]
+    locked_slots = [
+        {"subject_id": 1, "timeslot_id": 5, "faculty_id": 10},
+        {"subject_id": 1, "timeslot_id": 12, "faculty_id": 10},
+        {"subject_id": 1, "timeslot_id": 19, "faculty_id": 10}
+    ]
+    constraints = {
+        "random_seed": 42,
+        "section_name": "A2",
+        "prior_commitments": {10: [5, 12, 19]},
+        "prior_commitment_entries": {
+            10: [
+                {"timeslot_id": 5, "subject_id": 1, "section_name": "A1"},
+                {"timeslot_id": 12, "subject_id": 1, "section_name": "A1"},
+                {"timeslot_id": 19, "subject_id": 1, "section_name": "A1"}
+            ]
+        }
+    }
+    with pytest.raises(ValueError):
+        solver = CPSatSolver(subjects, faculty, timeslots, constraints, locked_slots)
+        solver.solve()
+
+
+def test_combined_cbcselect_locked_different_subjects_conflict_enforced():
+    timeslots = _build_base_timeslots()
+    subjects = [
+        {
+            "id": 1,
+            "name": "5G Networks",
+            "weekly_hours": 3,
+            "continuous_hours": 1,
+            "faculty_id": 10,
+            "is_elective": True,
+            "is_cbcs": True,
+            "manual_timeslot_ids": [5, 12, 19]
+        }
+    ]
+    faculty = [{"id": 10, "name": "Ms. R. Abirami"}]
+    locked_slots = [
+        {"subject_id": 1, "timeslot_id": 5, "faculty_id": 10},
+        {"subject_id": 1, "timeslot_id": 12, "faculty_id": 10},
+        {"subject_id": 1, "timeslot_id": 19, "faculty_id": 10}
+    ]
+    constraints = {
+        "random_seed": 42,
+        "section_name": "A2",
+        "prior_commitments": {10: [5, 12, 19]},
+        "prior_commitment_entries": {
+            10: [
+                {"timeslot_id": 5, "subject_id": 999, "section_name": "A1"},
+                {"timeslot_id": 12, "subject_id": 999, "section_name": "A1"},
+                {"timeslot_id": 19, "subject_id": 999, "section_name": "A1"}
+            ]
+        }
+    }
+    with pytest.raises(ValueError):
+        solver = CPSatSolver(subjects, faculty, timeslots, constraints, locked_slots)
+        solver.solve()
+
+
+def test_combined_cbcselect_locked_different_timeslot_conflict_enforced():
+    timeslots = _build_base_timeslots()
+    subjects = [
+        {
+            "id": 1,
+            "name": "5G Networks",
+            "weekly_hours": 3,
+            "continuous_hours": 1,
+            "faculty_id": 10,
+            "is_elective": True,
+            "is_cbcs": True,
+            "manual_timeslot_ids": [5, 12, 19]
+        }
+    ]
+    faculty = [{"id": 10, "name": "Ms. R. Abirami"}]
+    locked_slots = [
+        {"subject_id": 1, "timeslot_id": 6, "faculty_id": 10},
+        {"subject_id": 1, "timeslot_id": 13, "faculty_id": 10},
+        {"subject_id": 1, "timeslot_id": 20, "faculty_id": 10}
+    ]
+    constraints = {
+        "random_seed": 42,
+        "section_name": "A2",
+        "prior_commitments": {10: [5, 12, 19]},
+        "prior_commitment_entries": {
+            10: [
+                {"timeslot_id": 5, "subject_id": 1, "section_name": "A1"},
+                {"timeslot_id": 12, "subject_id": 1, "section_name": "A1"},
+                {"timeslot_id": 19, "subject_id": 1, "section_name": "A1"}
+            ]
+        }
+    }
+    with pytest.raises(ValueError):
+        solver = CPSatSolver(subjects, faculty, timeslots, constraints, locked_slots)
+        solver.solve()
+
+
+def test_combined_cbcselect_locked_same_section_conflict_enforced():
+    from common.combined_class import is_shared_combined_class
+    subject = {
+        "id": 1,
+        "is_elective": True,
+        "is_cbcs": True,
+        "manual_timeslot_ids": [5, 12, 19]
+    }
+    res = is_shared_combined_class(
+        subject=subject,
+        conflict_subject=subject,
+        slot_id=5,
+        faculty_id=10,
+        conflict_faculty_id=10,
+        conflict_slot_id=5,
+        is_different_section=False
+    )
+    assert res is False
+
+
+def test_combined_cbcselect_locked_different_locked_slots_conflict_enforced():
+    from common.combined_class import is_shared_combined_class
+    subject_a = {
+        "id": 1,
+        "is_elective": True,
+        "is_cbcs": True,
+        "manual_timeslot_ids": [5, 12, 19]
+    }
+    subject_b = {
+        "id": 1,
+        "is_elective": True,
+        "is_cbcs": True,
+        "manual_timeslot_ids": [5, 12, 26]
+    }
+    res = is_shared_combined_class(
+        subject=subject_a,
+        conflict_subject=subject_b,
+        slot_id=5,
+        faculty_id=10,
+        conflict_faculty_id=10,
+        conflict_slot_id=5,
+        is_different_section=True
+    )
+    assert res is False
+
+

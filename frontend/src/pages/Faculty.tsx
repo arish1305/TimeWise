@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import api from '../api/axios';
-import { Plus, Edit2, Trash2, User, BookOpen, Check, X, Upload, Download } from 'lucide-react';
+import { Plus, Edit2, Trash2, User, BookOpen, Check, X, Upload, Download, Search } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { formatTimeRange12Hour } from '../utils/timeFormat';
 
@@ -73,6 +73,8 @@ const FacultyManager = () => {
     const [showForm, setShowForm] = useState(false);
     const [showBulkPanel, setShowBulkPanel] = useState(false);
     const [editingId, setEditingId] = useState<number | null>(null);
+    const [searchQuery, setSearchQuery] = useState('');
+    const [appliedSearchQuery, setAppliedSearchQuery] = useState('');
 
     // Subject Assignment State
     const [showSubjectModal, setShowSubjectModal] = useState(false);
@@ -409,7 +411,7 @@ const FacultyManager = () => {
     const filteredSections = selectedYear
         ? availableSections.filter(sec => sec.academic_year_id === selectedYear)
         : availableSections;
-    const availabilityDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+    const availabilityDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
     const availabilityRows = Array.from(
         new Map(
             availabilityEntries
@@ -423,6 +425,20 @@ const FacultyManager = () => {
         PREFERRED: { label: 'Preferred', background: '#dcfce7', color: '#166534', border: '#86efac' },
         UNAVAILABLE: { label: 'Unavailable', background: '#fee2e2', color: '#991b1b', border: '#fecaca' },
     };
+
+    const filteredFaculty = facultyList.filter(fac => {
+        const query = appliedSearchQuery.trim().toLowerCase();
+        if (!query) return true;
+        
+        const nameMatch = fac.name.toLowerCase().includes(query);
+        const codeMatch = fac.faculty_id_code?.toLowerCase().includes(query) || false;
+        const typeMatch = fac.faculty_type.toLowerCase().replace('_', ' ').includes(query);
+        const deptMatch = fac.departments?.some(dept => 
+            dept.code.toLowerCase().includes(query) || dept.name.toLowerCase().includes(query)
+        ) || false;
+        
+        return nameMatch || codeMatch || typeMatch || deptMatch;
+    });
 
     return (
         <div>
@@ -438,6 +454,78 @@ const FacultyManager = () => {
                         setShowForm(true);
                     }}>
                         <Plus size={20} /> Add Faculty
+                    </button>
+                </div>
+            </div>
+
+            {/* Search Bar */}
+            <div className="card" style={{ marginBottom: '2rem', padding: '1rem' }}>
+                <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+                    <div style={{ position: 'relative', flex: 1 }}>
+                        <Search 
+                            size={18} 
+                            style={{ 
+                                position: 'absolute', 
+                                left: '1rem', 
+                                top: '50%', 
+                                transform: 'translateY(-50%)', 
+                                color: 'var(--text-muted)' 
+                            }} 
+                        />
+                        <input
+                            type="text"
+                            className="input-field"
+                            placeholder="Search by faculty name, ID, designation, or department..."
+                            value={searchQuery}
+                            onChange={e => {
+                                setSearchQuery(e.target.value);
+                                if (e.target.value === '') {
+                                    setAppliedSearchQuery('');
+                                }
+                            }}
+                            onKeyDown={e => {
+                                if (e.key === 'Enter') {
+                                    setAppliedSearchQuery(searchQuery);
+                                }
+                            }}
+                            style={{ 
+                                width: '100%', 
+                                paddingLeft: '2.75rem',
+                                height: '2.75rem',
+                                margin: 0
+                            }}
+                        />
+                        {searchQuery && (
+                            <button
+                                onClick={() => {
+                                    setSearchQuery('');
+                                    setAppliedSearchQuery('');
+                                }}
+                                style={{
+                                    position: 'absolute',
+                                    right: '1rem',
+                                    top: '50%',
+                                    transform: 'translateY(-50%)',
+                                    background: 'none',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    color: 'var(--text-muted)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    padding: 0
+                                }}
+                            >
+                                <X size={16} />
+                            </button>
+                        )}
+                    </div>
+                    <button 
+                        className="btn btn-primary" 
+                        onClick={() => setAppliedSearchQuery(searchQuery)}
+                        style={{ height: '2.75rem', whiteSpace: 'nowrap' }}
+                    >
+                        <Search size={18} /> Search
                     </button>
                 </div>
             </div>
@@ -878,69 +966,87 @@ const FacultyManager = () => {
                 )}
             </AnimatePresence>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '1.5rem' }}>
-                {facultyList.map(fac => (
-                    <div key={fac.id} className="card" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                            <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-                                <div style={{
-                                    width: 48, height: 48, borderRadius: '50%', background: 'var(--background-color)',
-                                    color: 'var(--primary-color)', display: 'flex', alignItems: 'center', justifyContent: 'center'
-                                }}>
-                                    <User size={24} />
-                                </div>
-                                <div>
-                                    <div style={{ fontWeight: 700, fontSize: '1.1rem' }}>{fac.name}</div>
-                                    <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                        <span style={{ background: '#f1f5f9', padding: '2px 6px', borderRadius: 4 }}>{fac.faculty_id_code || 'No ID'}</span>
-                                        <span>•</span>
-                                        <span>{fac.faculty_type.replace('_', ' ')}</span>
+            {filteredFaculty.length === 0 ? (
+                <div className="card" style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-secondary)' }}>
+                    <Search size={48} style={{ margin: '0 auto 1rem', color: 'var(--text-muted)', display: 'block', opacity: 0.5 }} />
+                    <h3 style={{ margin: '0 0 0.5rem' }}>No Faculty Found</h3>
+                    <p style={{ margin: 0 }}>We couldn't find any faculty members matching "{appliedSearchQuery}".</p>
+                    <button 
+                        className="btn btn-outline" 
+                        onClick={() => {
+                            setSearchQuery('');
+                            setAppliedSearchQuery('');
+                        }}
+                        style={{ marginTop: '1rem' }}
+                    >
+                        Clear Search
+                    </button>
+                </div>
+            ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '1.5rem' }}>
+                    {filteredFaculty.map(fac => (
+                        <div key={fac.id} className="card" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                                <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                                    <div style={{
+                                        width: 48, height: 48, borderRadius: '50%', background: 'var(--background-color)',
+                                        color: 'var(--primary-color)', display: 'flex', alignItems: 'center', justifyContent: 'center'
+                                    }}>
+                                        <User size={24} />
                                     </div>
-                                    {fac.departments && fac.departments.length > 0 && (
-                                        <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
-                                            {fac.departments.map(dept => (
-                                                <span key={dept.id} style={{ fontSize: '0.72rem', background: '#eef2ff', color: '#3730a3', padding: '2px 8px', borderRadius: '999px', fontWeight: 600 }}>
-                                                    {dept.code}
-                                                </span>
-                                            ))}
+                                    <div>
+                                        <div style={{ fontWeight: 700, fontSize: '1.1rem' }}>{fac.name}</div>
+                                        <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                            <span style={{ background: '#f1f5f9', padding: '2px 6px', borderRadius: 4 }}>{fac.faculty_id_code || 'No ID'}</span>
+                                            <span>•</span>
+                                            <span>{fac.faculty_type.replace('_', ' ')}</span>
                                         </div>
-                                    )}
+                                        {fac.departments && fac.departments.length > 0 && (
+                                            <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
+                                                {fac.departments.map(dept => (
+                                                    <span key={dept.id} style={{ fontSize: '0.72rem', background: '#eef2ff', color: '#3730a3', padding: '2px 8px', borderRadius: '999px', fontWeight: 600 }}>
+                                                        {dept.code}
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                    <button className="btn" title="Assign Subjects" style={{ padding: '0.4rem', color: 'var(--secondary-color)', background: 'var(--background-color)' }} onClick={() => openSubjectModal(fac)}>
+                                        <BookOpen size={16} />
+                                    </button>
+                                    <button className="btn" style={{ padding: '0.4rem', color: 'var(--text-secondary)' }} onClick={() => startEdit(fac)}>
+                                        <Edit2 size={16} />
+                                    </button>
+                                    <button className="btn" style={{ padding: '0.4rem', color: 'var(--error-color)' }} onClick={() => deleteFaculty(fac.id)}>
+                                        <Trash2 size={16} />
+                                    </button>
                                 </div>
                             </div>
-                            <div style={{ display: 'flex', gap: '0.5rem' }}>
-                                <button className="btn" title="Assign Subjects" style={{ padding: '0.4rem', color: 'var(--secondary-color)', background: 'var(--background-color)' }} onClick={() => openSubjectModal(fac)}>
-                                    <BookOpen size={16} />
-                                </button>
-                                <button className="btn" style={{ padding: '0.4rem', color: 'var(--text-secondary)' }} onClick={() => startEdit(fac)}>
-                                    <Edit2 size={16} />
-                                </button>
-                                <button className="btn" style={{ padding: '0.4rem', color: 'var(--error-color)' }} onClick={() => deleteFaculty(fac.id)}>
-                                    <Trash2 size={16} />
-                                </button>
-                            </div>
-                        </div>
 
-                        <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem' }}>
-                            <div style={{ textAlign: 'center' }}>
-                                <div style={{ fontWeight: 700, color: 'var(--primary-color)' }}>{fac.min_hours_per_week}h</div>
-                                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Min Load</div>
-                            </div>
-                            <div style={{ textAlign: 'center' }}>
-                                <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{fac.max_hours_per_week}h</div>
-                                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Max Load</div>
-                            </div>
-                            <div style={{ textAlign: 'center' }}>
-                                <div style={{ fontWeight: 700, color: 'var(--secondary-color)' }}>{fac.qualified_subjects?.length || 0}</div>
-                                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Subjects</div>
-                            </div>
-                            <div style={{ textAlign: 'center' }}>
-                                <div style={{ fontWeight: 700, color: '#10b981' }}>Active</div>
-                                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Status</div>
+                            <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem' }}>
+                                <div style={{ textAlign: 'center' }}>
+                                    <div style={{ fontWeight: 700, color: 'var(--primary-color)' }}>{fac.min_hours_per_week}h</div>
+                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Min Load</div>
+                                </div>
+                                <div style={{ textAlign: 'center' }}>
+                                    <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{fac.max_hours_per_week}h</div>
+                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Max Load</div>
+                                </div>
+                                <div style={{ textAlign: 'center' }}>
+                                    <div style={{ fontWeight: 700, color: 'var(--secondary-color)' }}>{fac.qualified_subjects?.length || 0}</div>
+                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Subjects</div>
+                                </div>
+                                <div style={{ textAlign: 'center' }}>
+                                    <div style={{ fontWeight: 700, color: '#10b981' }}>Active</div>
+                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Status</div>
+                                </div>
                             </div>
                         </div>
-                    </div>
-                ))}
-            </div>
+                    ))}
+                </div>
+            )}
         </div>
     );
 };

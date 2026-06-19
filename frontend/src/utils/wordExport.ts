@@ -1,3 +1,5 @@
+import { formatTime12Hour } from './timeFormat';
+
 type TimeSlot = {
     id: number;
     day: string;
@@ -48,12 +50,6 @@ const escapeHtml = (value: string | number | null | undefined) =>
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
-
-const formatTime = (time?: string | null) => {
-    if (!time) return '';
-    const [hour, minute] = time.split(':');
-    return `${Number(hour)}.${minute}`;
-};
 
 const verticalText = (value: string) =>
     value
@@ -200,9 +196,9 @@ const buildTimetableDocument = (timetable: SectionTimetable, timeSlots: TimeSlot
                         <th>DAY/TIMING</th>
                         ${timeRanges.map((range) => `
                             <th>
-                                ${escapeHtml(formatTime(range.start))}<br>
+                                ${escapeHtml(formatTime12Hour(range.start, ''))}<br>
                                 -<br>
-                                ${escapeHtml(formatTime(range.end))}
+                                ${escapeHtml(formatTime12Hour(range.end, ''))}
                             </th>
                         `).join('')}
                     </tr>

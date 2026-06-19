@@ -64,8 +64,44 @@ def register_objectives(
     w_student = int(custom_weights.get("student", 15) * 100)
     w_period = int(custom_weights.get("period", 15) * 100)
     w_uniqueness = int(custom_weights.get("uniqueness", 10) * 100)
+    w_preferred_slot = int(custom_weights.get("preferred_slot", 5) * 100)
 
     objective_terms = []
+
+    def parse_fid(f_id):
+        try:
+            return int(f_id)
+        except (ValueError, TypeError):
+            return f_id
+
+    def parse_slot_id(slot_id):
+        try:
+            return int(slot_id)
+        except (ValueError, TypeError):
+            return slot_id
+
+    def collect_preferred_slots(fid):
+        preferred_slots = set()
+        faculty_availability = constraints.get("faculty_availability", {}) or {}
+        faculty_preferences = constraints.get("faculty_preferences", {}) or {}
+
+        for source in (faculty_availability, faculty_preferences):
+            config = None
+            if isinstance(source, dict):
+                config = source.get(fid) or source.get(str(fid))
+            elif isinstance(source, list):
+                config = next(
+                    (item for item in source if isinstance(item, dict) and parse_fid(item.get("faculty_id")) == fid),
+                    None,
+                )
+
+            if not isinstance(config, dict):
+                continue
+            raw_slots = config.get("preferred_slots") or []
+            if isinstance(raw_slots, list):
+                preferred_slots.update(parse_slot_id(slot_id) for slot_id in raw_slots)
+
+        return preferred_slots
 
     # 1. Subject Spread (35% weight)
     for s in subjects:
@@ -140,6 +176,11 @@ def register_objectives(
                     model.Add(consec <= active_vars[idx])
                     model.Add(consec <= active_vars[idx + 1])
                     objective_terms.append(consec * w_faculty)
+
+        for tid in collect_preferred_slots(parse_fid(fid)):
+            for sid in sids:
+                if tid in x[sid]:
+                    objective_terms.append(x[sid][tid] * w_preferred_slot)
 
     # 3. Student Comfort (15% weight)
     max_load = model.NewIntVar(0, len(timeslots), "max_load")

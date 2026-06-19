@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import api from '../api/axios';
-import { Plus, Edit2, Trash2, User, BookOpen, Check, X, Upload, Download } from 'lucide-react';
+import { Plus, Edit2, Trash2, User, BookOpen, Check, X, Upload, Download, Search } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { formatTimeRange12Hour } from '../utils/timeFormat';
 
 interface Subject {
     id: number;
@@ -56,11 +57,24 @@ interface BulkFacultyRow {
     department_codes: string;
 }
 
+type AvailabilityStatus = 'AVAILABLE' | 'PREFERRED' | 'UNAVAILABLE';
+
+interface FacultyAvailabilityEntry {
+    timeslot_id: number;
+    status: AvailabilityStatus;
+    day: string;
+    start_time: string;
+    end_time: string;
+    department_id?: number | null;
+}
+
 const FacultyManager = () => {
     const [facultyList, setFacultyList] = useState<Faculty[]>([]);
     const [showForm, setShowForm] = useState(false);
     const [showBulkPanel, setShowBulkPanel] = useState(false);
     const [editingId, setEditingId] = useState<number | null>(null);
+    const [searchQuery, setSearchQuery] = useState('');
+    const [appliedSearchQuery, setAppliedSearchQuery] = useState('');
 
     // Subject Assignment State
     const [showSubjectModal, setShowSubjectModal] = useState(false);
@@ -71,6 +85,9 @@ const FacultyManager = () => {
     const [availableDepartments, setAvailableDepartments] = useState<Department[]>([]);
     const [subjectAssignments, setSubjectAssignments] = useState<SubjectAssignment[]>([]);
     const [selectedYear, setSelectedYear] = useState<number | null>(null);
+    const [availabilityEntries, setAvailabilityEntries] = useState<FacultyAvailabilityEntry[]>([]);
+    const [availabilityLoading, setAvailabilityLoading] = useState(false);
+    const [availabilitySavingKey, setAvailabilitySavingKey] = useState<string | null>(null);
 
     const [formData, setFormData] = useState({
         name: '',
@@ -287,6 +304,19 @@ const FacultyManager = () => {
         } catch (err) { console.error(err); }
     };
 
+    const fetchFacultyAvailability = async (facultyId: number) => {
+        setAvailabilityLoading(true);
+        try {
+            const res = await api.get(`/faculty/${facultyId}/availability`);
+            setAvailabilityEntries(res.data.entries || []);
+        } catch (err) {
+            console.error("Failed to fetch faculty availability", err);
+            setAvailabilityEntries([]);
+        } finally {
+            setAvailabilityLoading(false);
+        }
+    };
+
     const openSubjectModal = (fac: Faculty) => {
         setSelectedFaculty(fac);
         setSelectedYear(null);
@@ -295,7 +325,46 @@ const FacultyManager = () => {
             section_ids: qs.section_ids || []
         })) || [];
         setSubjectAssignments(existing);
+        fetchFacultyAvailability(fac.id);
         setShowSubjectModal(true);
+    };
+
+    const cycleAvailabilityStatus = (status: AvailabilityStatus): AvailabilityStatus => {
+        if (status === 'AVAILABLE') return 'PREFERRED';
+        if (status === 'PREFERRED') return 'UNAVAILABLE';
+        return 'AVAILABLE';
+    };
+
+    const availabilityCellStatus = (entries: FacultyAvailabilityEntry[]): AvailabilityStatus => {
+        if (entries.some(entry => entry.status === 'UNAVAILABLE')) return 'UNAVAILABLE';
+        if (entries.some(entry => entry.status === 'PREFERRED')) return 'PREFERRED';
+        return 'AVAILABLE';
+    };
+
+    const updateAvailabilityCell = async (cellEntries: FacultyAvailabilityEntry[], cellKey: string) => {
+        if (!selectedFaculty || cellEntries.length === 0) return;
+        const nextStatus = cycleAvailabilityStatus(availabilityCellStatus(cellEntries));
+        const updates = cellEntries.map(entry => ({
+            timeslot_id: entry.timeslot_id,
+            status: nextStatus
+        }));
+
+        setAvailabilityEntries(prev => prev.map(entry => (
+            updates.some(update => update.timeslot_id === entry.timeslot_id)
+                ? { ...entry, status: nextStatus }
+                : entry
+        )));
+
+        setAvailabilitySavingKey(cellKey);
+        try {
+            await api.post(`/faculty/${selectedFaculty.id}/availability`, { entries: updates });
+        } catch (err: any) {
+            console.error("Failed to update faculty availability", err);
+            alert(err.response?.data?.detail || "Failed to update availability");
+            fetchFacultyAvailability(selectedFaculty.id);
+        } finally {
+            setAvailabilitySavingKey(null);
+        }
     };
 
     const toggleSubjectSelection = (subId: number) => {
@@ -342,6 +411,34 @@ const FacultyManager = () => {
     const filteredSections = selectedYear
         ? availableSections.filter(sec => sec.academic_year_id === selectedYear)
         : availableSections;
+    const availabilityDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const availabilityRows = Array.from(
+        new Map(
+            availabilityEntries
+                .filter(entry => availabilityDays.includes(entry.day))
+                .map(entry => [`${entry.start_time}-${entry.end_time}`, { start_time: entry.start_time, end_time: entry.end_time }])
+        ).values()
+    ).sort((a, b) => a.start_time.localeCompare(b.start_time));
+
+    const availabilityStyles: Record<AvailabilityStatus, { label: string; background: string; color: string; border: string }> = {
+        AVAILABLE: { label: 'Available', background: '#f8fafc', color: '#475569', border: '#e2e8f0' },
+        PREFERRED: { label: 'Preferred', background: '#dcfce7', color: '#166534', border: '#86efac' },
+        UNAVAILABLE: { label: 'Unavailable', background: '#fee2e2', color: '#991b1b', border: '#fecaca' },
+    };
+
+    const filteredFaculty = facultyList.filter(fac => {
+        const query = appliedSearchQuery.trim().toLowerCase();
+        if (!query) return true;
+        
+        const nameMatch = fac.name.toLowerCase().includes(query);
+        const codeMatch = fac.faculty_id_code?.toLowerCase().includes(query) || false;
+        const typeMatch = fac.faculty_type.toLowerCase().replace('_', ' ').includes(query);
+        const deptMatch = fac.departments?.some(dept => 
+            dept.code.toLowerCase().includes(query) || dept.name.toLowerCase().includes(query)
+        ) || false;
+        
+        return nameMatch || codeMatch || typeMatch || deptMatch;
+    });
 
     return (
         <div>
@@ -357,6 +454,78 @@ const FacultyManager = () => {
                         setShowForm(true);
                     }}>
                         <Plus size={20} /> Add Faculty
+                    </button>
+                </div>
+            </div>
+
+            {/* Search Bar */}
+            <div className="card" style={{ marginBottom: '2rem', padding: '1rem' }}>
+                <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+                    <div style={{ position: 'relative', flex: 1 }}>
+                        <Search 
+                            size={18} 
+                            style={{ 
+                                position: 'absolute', 
+                                left: '1rem', 
+                                top: '50%', 
+                                transform: 'translateY(-50%)', 
+                                color: 'var(--text-muted)' 
+                            }} 
+                        />
+                        <input
+                            type="text"
+                            className="input-field"
+                            placeholder="Search by faculty name, ID, designation, or department..."
+                            value={searchQuery}
+                            onChange={e => {
+                                setSearchQuery(e.target.value);
+                                if (e.target.value === '') {
+                                    setAppliedSearchQuery('');
+                                }
+                            }}
+                            onKeyDown={e => {
+                                if (e.key === 'Enter') {
+                                    setAppliedSearchQuery(searchQuery);
+                                }
+                            }}
+                            style={{ 
+                                width: '100%', 
+                                paddingLeft: '2.75rem',
+                                height: '2.75rem',
+                                margin: 0
+                            }}
+                        />
+                        {searchQuery && (
+                            <button
+                                onClick={() => {
+                                    setSearchQuery('');
+                                    setAppliedSearchQuery('');
+                                }}
+                                style={{
+                                    position: 'absolute',
+                                    right: '1rem',
+                                    top: '50%',
+                                    transform: 'translateY(-50%)',
+                                    background: 'none',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    color: 'var(--text-muted)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    padding: 0
+                                }}
+                            >
+                                <X size={16} />
+                            </button>
+                        )}
+                    </div>
+                    <button 
+                        className="btn btn-primary" 
+                        onClick={() => setAppliedSearchQuery(searchQuery)}
+                        style={{ height: '2.75rem', whiteSpace: 'nowrap' }}
+                    >
+                        <Search size={18} /> Search
                     </button>
                 </div>
             </div>
@@ -380,6 +549,7 @@ const FacultyManager = () => {
                         </div>
 
                         <div style={{ marginTop: '1.5rem', padding: '1rem', border: '1px solid var(--border-color)', borderRadius: '8px', background: 'var(--background-color)' }}>
+                            <label className="input-label" style={{ marginBottom: '0.5rem', display: 'block' }}>Upload Faculty File (CSV or Excel)</label>
                             <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
                                 <input
                                     type="file"
@@ -405,53 +575,50 @@ const FacultyManager = () => {
                                 </button>
                             </div>
 
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                                {bulkRows.map((row, index) => (
-                                    <div key={index} style={{
-                                        display: 'grid',
-                                        gridTemplateColumns: 'minmax(180px, 1.4fr) minmax(120px, 1fr) minmax(150px, 1fr) 110px 110px minmax(180px, 1.2fr) 44px',
-                                        gap: '0.75rem',
-                                        alignItems: 'end',
-                                        padding: '0.9rem',
-                                        border: '1px solid var(--border-color)',
-                                        borderRadius: '8px',
-                                        background: 'white'
-                                    }}>
-                                        <div className="input-group" style={{ marginBottom: 0 }}>
-                                            <label className="input-label">Name</label>
-                                            <input className="input-field" value={row.name} onChange={e => updateBulkRow(index, 'name', e.target.value)} />
-                                        </div>
-                                        <div className="input-group" style={{ marginBottom: 0 }}>
-                                            <label className="input-label">ID Code</label>
-                                            <input className="input-field" value={row.faculty_id_code} onChange={e => updateBulkRow(index, 'faculty_id_code', e.target.value)} />
-                                        </div>
-                                        <div className="input-group" style={{ marginBottom: 0 }}>
-                                            <label className="input-label">Designation</label>
-                                            <select className="input-field" value={row.faculty_type} onChange={e => updateBulkRow(index, 'faculty_type', e.target.value)}>
-                                                <option value="PROFESSOR">Professor</option>
-                                                <option value="ASSISTANT_PROFESSOR">Assistant Professor</option>
-                                                <option value="LAB_INSTRUCTOR">Lab Instructor</option>
-                                                <option value="GUEST">Guest</option>
-                                            </select>
-                                        </div>
-                                        <div className="input-group" style={{ marginBottom: 0 }}>
-                                            <label className="input-label">Min</label>
-                                            <input type="number" className="input-field" value={row.min_hours_per_week} onChange={e => updateBulkRow(index, 'min_hours_per_week', parseInt(e.target.value) || 0)} />
-                                        </div>
-                                        <div className="input-group" style={{ marginBottom: 0 }}>
-                                            <label className="input-label">Max</label>
-                                            <input type="number" className="input-field" value={row.max_hours_per_week} onChange={e => updateBulkRow(index, 'max_hours_per_week', parseInt(e.target.value) || 0)} />
-                                        </div>
-                                        <div className="input-group" style={{ marginBottom: 0 }}>
-                                            <label className="input-label">Department Codes</label>
-                                            <input className="input-field" placeholder="CSE,ECE" value={row.department_codes} onChange={e => updateBulkRow(index, 'department_codes', e.target.value)} />
-                                        </div>
-                                        <button className="btn" style={{ padding: '0.65rem', color: 'var(--error-color)' }} onClick={() => removeBulkRow(index)} title="Remove row">
-                                            <Trash2 size={16} />
-                                        </button>
-                                    </div>
-                                ))}
-                            </div>
+                             <div style={{ overflowX: 'auto', paddingBottom: '0.5rem', width: '100%' }}>
+                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', minWidth: '950px' }}>
+                                     {bulkRows.map((row, index) => (
+                                         <div key={index} style={{
+                                             display: 'grid',
+                                             gridTemplateColumns: 'minmax(180px, 1.4fr) minmax(120px, 1fr) minmax(150px, 1fr) 110px 110px minmax(180px, 1.2fr) 44px',
+                                             gap: '0.75rem',
+                                             alignItems: 'end',
+                                             padding: '0.9rem',
+                                             border: '1px solid var(--border-color)',
+                                             borderRadius: '8px',
+                                             background: 'white'
+                                         }}>
+                                             <div className="input-group" style={{ marginBottom: 0 }}>
+                                                 <label className="input-label">Name</label>
+                                                 <input className="input-field" placeholder="Enter faculty name" value={row.name} onChange={e => updateBulkRow(index, 'name', e.target.value)} />
+                                             </div>
+                                             <div className="input-group" style={{ marginBottom: 0 }}>
+                                                 <label className="input-label">ID Code</label>
+                                                 <input className="input-field" placeholder="Enter ID code" value={row.faculty_id_code} onChange={e => updateBulkRow(index, 'faculty_id_code', e.target.value)} />
+                                             </div>
+                                             <div className="input-group" style={{ marginBottom: 0 }}>
+                                                 <label className="input-label">Designation</label>
+                                                 <input className="input-field" placeholder="Enter designation (e.g. Professor)" value={row.faculty_type} onChange={e => updateBulkRow(index, 'faculty_type', e.target.value)} />
+                                             </div>
+                                             <div className="input-group" style={{ marginBottom: 0 }}>
+                                                 <label className="input-label">Min</label>
+                                                 <input type="number" className="input-field" placeholder="Min load" value={row.min_hours_per_week} onChange={e => updateBulkRow(index, 'min_hours_per_week', parseInt(e.target.value) || 0)} />
+                                             </div>
+                                             <div className="input-group" style={{ marginBottom: 0 }}>
+                                                 <label className="input-label">Max</label>
+                                                 <input type="number" className="input-field" placeholder="Max load" value={row.max_hours_per_week} onChange={e => updateBulkRow(index, 'max_hours_per_week', parseInt(e.target.value) || 0)} />
+                                             </div>
+                                             <div className="input-group" style={{ marginBottom: 0 }}>
+                                                 <label className="input-label">Department Codes</label>
+                                                 <input className="input-field" placeholder="Enter department codes (e.g. CSE, ECE)" value={row.department_codes} onChange={e => updateBulkRow(index, 'department_codes', e.target.value)} />
+                                             </div>
+                                             <button className="btn" style={{ padding: '0.65rem', color: 'var(--error-color)' }} onClick={() => removeBulkRow(index)} title="Remove row">
+                                                 <Trash2 size={16} />
+                                             </button>
+                                         </div>
+                                     ))}
+                                 </div>
+                             </div>
 
                             <div style={{ marginTop: '1rem', display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
                                 <button className="btn btn-primary" onClick={submitManualBulk} disabled={bulkLoading}>
@@ -477,31 +644,26 @@ const FacultyManager = () => {
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginTop: '1rem' }}>
                             <div className="input-group">
                                 <label className="input-label">Full Name</label>
-                                <input className="input-field" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} placeholder="e.g. Dr. Jane Doe" />
+                                <input className="input-field" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} placeholder="Enter full name (e.g. Dr. Jane Doe)" />
                             </div>
                             <div className="input-group">
                                 <label className="input-label">Faculty ID Code</label>
-                                <input className="input-field" value={formData.faculty_id_code} onChange={e => setFormData({ ...formData, faculty_id_code: e.target.value })} placeholder="e.g. FAC001" />
+                                <input className="input-field" value={formData.faculty_id_code} onChange={e => setFormData({ ...formData, faculty_id_code: e.target.value })} placeholder="Enter faculty ID code (e.g. FAC001)" />
                             </div>
 
                             <div className="input-group">
                                 <label className="input-label">Designation</label>
-                                <select className="input-field" value={formData.faculty_type} onChange={e => setFormData({ ...formData, faculty_type: e.target.value })}>
-                                    <option value="PROFESSOR">Professor</option>
-                                    <option value="ASSISTANT_PROFESSOR">Assistant Professor</option>
-                                    <option value="LAB_INSTRUCTOR">Lab Instructor</option>
-                                    <option value="GUEST">Guest</option>
-                                </select>
+                                <input className="input-field" placeholder="Enter designation (e.g. Professor)" value={formData.faculty_type} onChange={e => setFormData({ ...formData, faculty_type: e.target.value })} />
                             </div>
 
                             <div style={{ display: 'flex', gap: '1rem' }}>
                                 <div className="input-group" style={{ flex: 1 }}>
                                     <label className="input-label">Min Hours/Week</label>
-                                    <input type="number" className="input-field" value={formData.min_hours_per_week} onChange={e => setFormData({ ...formData, min_hours_per_week: parseInt(e.target.value) })} />
+                                    <input type="number" className="input-field" placeholder="Enter min load (e.g. 5)" value={formData.min_hours_per_week} onChange={e => setFormData({ ...formData, min_hours_per_week: parseInt(e.target.value) })} />
                                 </div>
                                 <div className="input-group" style={{ flex: 1 }}>
                                     <label className="input-label">Max Hours/Week</label>
-                                    <input type="number" className="input-field" value={formData.max_hours_per_week} onChange={e => setFormData({ ...formData, max_hours_per_week: parseInt(e.target.value) })} />
+                                    <input type="number" className="input-field" placeholder="Enter max load (e.g. 18)" value={formData.max_hours_per_week} onChange={e => setFormData({ ...formData, max_hours_per_week: parseInt(e.target.value) })} />
                                 </div>
                             </div>
 
@@ -614,6 +776,96 @@ const FacultyManager = () => {
                                     </div>
                                 </div>
 
+                                <div style={{ marginBottom: '1.5rem', padding: '1rem', background: 'white', border: '1px solid var(--border-color)', borderRadius: '8px' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', alignItems: 'flex-start', marginBottom: '0.75rem' }}>
+                                        <div>
+                                            <div style={{ fontSize: '0.95rem', fontWeight: 700 }}>Availability Grid</div>
+                                            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                                                Click a cell to cycle Available → Preferred → Unavailable.
+                                            </div>
+                                        </div>
+                                        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', fontSize: '0.75rem' }}>
+                                            {Object.entries(availabilityStyles).map(([status, style]) => (
+                                                <span key={status} style={{
+                                                    padding: '0.25rem 0.5rem',
+                                                    borderRadius: '999px',
+                                                    background: style.background,
+                                                    color: style.color,
+                                                    border: `1px solid ${style.border}`,
+                                                    fontWeight: 700
+                                                }}>
+                                                    {style.label}
+                                                </span>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    {availabilityLoading ? (
+                                        <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Loading availability...</div>
+                                    ) : availabilityRows.length === 0 ? (
+                                        <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', fontStyle: 'italic' }}>
+                                            No department time slots found for this faculty yet.
+                                        </div>
+                                    ) : (
+                                        <div style={{ overflowX: 'auto' }}>
+                                            <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0.35rem', minWidth: 620 }}>
+                                                <thead>
+                                                    <tr>
+                                                        <th style={{ textAlign: 'left', fontSize: '0.75rem', color: 'var(--text-secondary)', width: 155 }}>Period</th>
+                                                        {availabilityDays.map(day => (
+                                                            <th key={day} style={{ textAlign: 'center', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{day.slice(0, 3)}</th>
+                                                        ))}
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {availabilityRows.map(row => (
+                                                        <tr key={`${row.start_time}-${row.end_time}`}>
+                                                            <td style={{ fontSize: '0.76rem', fontWeight: 700, color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>
+                                                                {formatTimeRange12Hour(row.start_time, row.end_time)}
+                                                            </td>
+                                                            {availabilityDays.map(day => {
+                                                                const cellEntries = availabilityEntries.filter(entry =>
+                                                                    entry.day === day &&
+                                                                    entry.start_time === row.start_time &&
+                                                                    entry.end_time === row.end_time
+                                                                );
+                                                                const status = availabilityCellStatus(cellEntries);
+                                                                const style = availabilityStyles[status];
+                                                                const cellKey = `${day}-${row.start_time}-${row.end_time}`;
+                                                                const disabled = cellEntries.length === 0 || availabilitySavingKey === cellKey;
+                                                                return (
+                                                                    <td key={cellKey}>
+                                                                        <button
+                                                                            type="button"
+                                                                            disabled={disabled}
+                                                                            onClick={() => updateAvailabilityCell(cellEntries, cellKey)}
+                                                                            title={cellEntries.length > 1 ? `${cellEntries.length} department slots` : style.label}
+                                                                            style={{
+                                                                                width: '100%',
+                                                                                minHeight: 38,
+                                                                                borderRadius: 8,
+                                                                                border: `1.5px solid ${style.border}`,
+                                                                                background: disabled && cellEntries.length === 0 ? '#f1f5f9' : style.background,
+                                                                                color: style.color,
+                                                                                cursor: disabled ? 'not-allowed' : 'pointer',
+                                                                                fontSize: '0.72rem',
+                                                                                fontWeight: 800,
+                                                                                opacity: availabilitySavingKey === cellKey ? 0.65 : 1
+                                                                            }}
+                                                                        >
+                                                                            {cellEntries.length === 0 ? '-' : style.label}
+                                                                        </button>
+                                                                    </td>
+                                                                );
+                                                            })}
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    )}
+                                </div>
+
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                                     {availableSubjects.map(sub => {
                                         const assignment = subjectAssignments.find(a => a.subject_id === sub.id);
@@ -714,69 +966,87 @@ const FacultyManager = () => {
                 )}
             </AnimatePresence>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '1.5rem' }}>
-                {facultyList.map(fac => (
-                    <div key={fac.id} className="card" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                            <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-                                <div style={{
-                                    width: 48, height: 48, borderRadius: '50%', background: 'var(--background-color)',
-                                    color: 'var(--primary-color)', display: 'flex', alignItems: 'center', justifyContent: 'center'
-                                }}>
-                                    <User size={24} />
-                                </div>
-                                <div>
-                                    <div style={{ fontWeight: 700, fontSize: '1.1rem' }}>{fac.name}</div>
-                                    <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                        <span style={{ background: '#f1f5f9', padding: '2px 6px', borderRadius: 4 }}>{fac.faculty_id_code || 'No ID'}</span>
-                                        <span>•</span>
-                                        <span>{fac.faculty_type.replace('_', ' ')}</span>
+            {filteredFaculty.length === 0 ? (
+                <div className="card" style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-secondary)' }}>
+                    <Search size={48} style={{ margin: '0 auto 1rem', color: 'var(--text-muted)', display: 'block', opacity: 0.5 }} />
+                    <h3 style={{ margin: '0 0 0.5rem' }}>No Faculty Found</h3>
+                    <p style={{ margin: 0 }}>We couldn't find any faculty members matching "{appliedSearchQuery}".</p>
+                    <button 
+                        className="btn btn-outline" 
+                        onClick={() => {
+                            setSearchQuery('');
+                            setAppliedSearchQuery('');
+                        }}
+                        style={{ marginTop: '1rem' }}
+                    >
+                        Clear Search
+                    </button>
+                </div>
+            ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '1.5rem' }}>
+                    {filteredFaculty.map(fac => (
+                        <div key={fac.id} className="card" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                                <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                                    <div style={{
+                                        width: 48, height: 48, borderRadius: '50%', background: 'var(--background-color)',
+                                        color: 'var(--primary-color)', display: 'flex', alignItems: 'center', justifyContent: 'center'
+                                    }}>
+                                        <User size={24} />
                                     </div>
-                                    {fac.departments && fac.departments.length > 0 && (
-                                        <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
-                                            {fac.departments.map(dept => (
-                                                <span key={dept.id} style={{ fontSize: '0.72rem', background: '#eef2ff', color: '#3730a3', padding: '2px 8px', borderRadius: '999px', fontWeight: 600 }}>
-                                                    {dept.code}
-                                                </span>
-                                            ))}
+                                    <div>
+                                        <div style={{ fontWeight: 700, fontSize: '1.1rem' }}>{fac.name}</div>
+                                        <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                            <span style={{ background: '#f1f5f9', padding: '2px 6px', borderRadius: 4 }}>{fac.faculty_id_code || 'No ID'}</span>
+                                            <span>•</span>
+                                            <span>{fac.faculty_type.replace('_', ' ')}</span>
                                         </div>
-                                    )}
+                                        {fac.departments && fac.departments.length > 0 && (
+                                            <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
+                                                {fac.departments.map(dept => (
+                                                    <span key={dept.id} style={{ fontSize: '0.72rem', background: '#eef2ff', color: '#3730a3', padding: '2px 8px', borderRadius: '999px', fontWeight: 600 }}>
+                                                        {dept.code}
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                    <button className="btn" title="Assign Subjects" style={{ padding: '0.4rem', color: 'var(--secondary-color)', background: 'var(--background-color)' }} onClick={() => openSubjectModal(fac)}>
+                                        <BookOpen size={16} />
+                                    </button>
+                                    <button className="btn" style={{ padding: '0.4rem', color: 'var(--text-secondary)' }} onClick={() => startEdit(fac)}>
+                                        <Edit2 size={16} />
+                                    </button>
+                                    <button className="btn" style={{ padding: '0.4rem', color: 'var(--error-color)' }} onClick={() => deleteFaculty(fac.id)}>
+                                        <Trash2 size={16} />
+                                    </button>
                                 </div>
                             </div>
-                            <div style={{ display: 'flex', gap: '0.5rem' }}>
-                                <button className="btn" title="Assign Subjects" style={{ padding: '0.4rem', color: 'var(--secondary-color)', background: 'var(--background-color)' }} onClick={() => openSubjectModal(fac)}>
-                                    <BookOpen size={16} />
-                                </button>
-                                <button className="btn" style={{ padding: '0.4rem', color: 'var(--text-secondary)' }} onClick={() => startEdit(fac)}>
-                                    <Edit2 size={16} />
-                                </button>
-                                <button className="btn" style={{ padding: '0.4rem', color: 'var(--error-color)' }} onClick={() => deleteFaculty(fac.id)}>
-                                    <Trash2 size={16} />
-                                </button>
-                            </div>
-                        </div>
 
-                        <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem' }}>
-                            <div style={{ textAlign: 'center' }}>
-                                <div style={{ fontWeight: 700, color: 'var(--primary-color)' }}>{fac.min_hours_per_week}h</div>
-                                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Min Load</div>
-                            </div>
-                            <div style={{ textAlign: 'center' }}>
-                                <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{fac.max_hours_per_week}h</div>
-                                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Max Load</div>
-                            </div>
-                            <div style={{ textAlign: 'center' }}>
-                                <div style={{ fontWeight: 700, color: 'var(--secondary-color)' }}>{fac.qualified_subjects?.length || 0}</div>
-                                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Subjects</div>
-                            </div>
-                            <div style={{ textAlign: 'center' }}>
-                                <div style={{ fontWeight: 700, color: '#10b981' }}>Active</div>
-                                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Status</div>
+                            <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem' }}>
+                                <div style={{ textAlign: 'center' }}>
+                                    <div style={{ fontWeight: 700, color: 'var(--primary-color)' }}>{fac.min_hours_per_week}h</div>
+                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Min Load</div>
+                                </div>
+                                <div style={{ textAlign: 'center' }}>
+                                    <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{fac.max_hours_per_week}h</div>
+                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Max Load</div>
+                                </div>
+                                <div style={{ textAlign: 'center' }}>
+                                    <div style={{ fontWeight: 700, color: 'var(--secondary-color)' }}>{fac.qualified_subjects?.length || 0}</div>
+                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Subjects</div>
+                                </div>
+                                <div style={{ textAlign: 'center' }}>
+                                    <div style={{ fontWeight: 700, color: '#10b981' }}>Active</div>
+                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Status</div>
+                                </div>
                             </div>
                         </div>
-                    </div>
-                ))}
-            </div>
+                    ))}
+                </div>
+            )}
         </div>
     );
 };

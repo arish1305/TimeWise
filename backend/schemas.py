@@ -1,7 +1,7 @@
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 from datetime import datetime, time
-from models import UserRole, FacultyType, SubjectType, EntryCreator
+from models import UserRole, FacultyType, SubjectType, EntryCreator, FacultyAvailabilityStatus
 
 class UserBase(BaseModel):
     username: str
@@ -124,7 +124,7 @@ class FacultySubjectAssignment(FacultySubjectAssignmentBase):
 class FacultyBase(BaseModel):
     name: str
     faculty_id_code: Optional[str] = None # e.g. FAC001
-    faculty_type: FacultyType = FacultyType.ASSISTANT_PROFESSOR
+    faculty_type: str = "ASSISTANT_PROFESSOR"
     min_hours_per_week: int = 5
     max_hours_per_week: int = 18
     preferred_slots: Optional[dict] = None
@@ -143,10 +143,11 @@ class Faculty(FacultyBase):
 class FacultyBulkRow(BaseModel):
     name: str
     faculty_id_code: Optional[str] = None
-    faculty_type: FacultyType = FacultyType.ASSISTANT_PROFESSOR
+    faculty_type: str = "ASSISTANT_PROFESSOR"
     min_hours_per_week: int = 5
     max_hours_per_week: int = 18
     department_codes: List[str] = []
+    row_number: Optional[int] = None
 
 class FacultyBulkCreate(BaseModel):
     rows: List[FacultyBulkRow]
@@ -154,6 +155,30 @@ class FacultyBulkCreate(BaseModel):
 class FacultyBulkResult(BaseModel):
     created_count: int
     errors: List[str]
+
+
+class FacultyAvailabilityEntryUpdate(BaseModel):
+    timeslot_id: int
+    status: FacultyAvailabilityStatus
+
+
+class FacultyAvailabilityBulkUpdate(BaseModel):
+    entries: List[FacultyAvailabilityEntryUpdate]
+
+
+class FacultyAvailabilityEntry(BaseModel):
+    timeslot_id: int
+    status: FacultyAvailabilityStatus
+    day: Optional[str] = None
+    start_time: Optional[time] = None
+    end_time: Optional[time] = None
+    is_break: bool = False
+    department_id: Optional[int] = None
+
+
+class FacultyAvailabilityResponse(BaseModel):
+    faculty_id: int
+    entries: List[FacultyAvailabilityEntry]
 
 # --- Timetable Schemas ---
 class GenerateTimetableRequest(BaseModel):

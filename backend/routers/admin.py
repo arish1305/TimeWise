@@ -53,17 +53,34 @@ def _parse_int(value: Any, default: int) -> int:
     return int(float(text))
 
 
+def _find_field(row: Dict[str, Any], keys: List[str], default: Any = None) -> Any:
+    for k in keys:
+        if k in row:
+            return row[k]
+    return default
+
+
 def _build_faculty_from_row(row: Dict[str, Any]) -> schemas.FacultyBulkRow:
-    faculty_type = str(row.get("faculty_type") or "ASSISTANT_PROFESSOR").strip().upper()
-    faculty_id_code = str(row.get("faculty_id_code") or "").strip() or None
+    name_val = _find_field(row, ["name", "faculty_name", "full_name", "facultyname", "fullname"])
+    id_val = _find_field(row, ["faculty_id_code", "faculty_code", "id_code", "idcode", "id", "code", "faculty_id"])
+    
+    name = str(name_val or "").strip()
+    faculty_id_code = str(id_val or "").strip() or None
+    
+    faculty_type = str(_find_field(row, ["faculty_type", "designation", "faculty_designation", "type", "role"]) or "ASSISTANT_PROFESSOR").strip()
+    
+    min_hrs = _parse_int(_find_field(row, ["min_hours_per_week", "min_hours", "min_load", "min", "minhours"]), 5)
+    max_hrs = _parse_int(_find_field(row, ["max_hours_per_week", "max_hours", "max_load", "max", "maxhours"]), 18)
+    
+    dept_codes = _split_department_codes(_find_field(row, ["department_codes", "department_code", "departments", "department", "dept", "depts", "dept_codes", "deptcodes"]))
 
     return schemas.FacultyBulkRow(
-        name=str(row.get("name") or "").strip(),
+        name=name,
         faculty_id_code=faculty_id_code,
         faculty_type=faculty_type,
-        min_hours_per_week=_parse_int(row.get("min_hours_per_week"), 5),
-        max_hours_per_week=_parse_int(row.get("max_hours_per_week"), 18),
-        department_codes=_split_department_codes(row.get("department_codes")),
+        min_hours_per_week=min_hrs,
+        max_hours_per_week=max_hrs,
+        department_codes=dept_codes,
     )
 
 
@@ -81,10 +98,14 @@ def _create_faculty_records(rows: List[schemas.FacultyBulkRow], db: Session) -> 
     batch_codes = set()
 
     for index, row in enumerate(rows, start=1):
+        row_idx = row.row_number if getattr(row, "row_number", None) is not None else index
         try:
             with db.begin_nested():
-                if not row.name.strip():
-                    raise ValueError("name is required")
+                if not row.name or not row.name.strip():
+                    raise ValueError("Name is missing")
+
+                if not row.faculty_id_code or not row.faculty_id_code.strip():
+                    raise ValueError("ID is missing")
 
                 normalized_code = (row.faculty_id_code or "").strip().upper()
                 if normalized_code:
@@ -104,7 +125,7 @@ def _create_faculty_records(rows: List[schemas.FacultyBulkRow], db: Session) -> 
                 db_faculty = models.Faculty(
                     name=row.name.strip(),
                     faculty_id_code=(row.faculty_id_code or "").strip() or None,
-                    faculty_type=row.faculty_type,
+                    faculty_type=row.faculty_type.strip(),
                     min_hours_per_week=row.min_hours_per_week,
                     max_hours_per_week=row.max_hours_per_week,
                 )
@@ -119,7 +140,7 @@ def _create_faculty_records(rows: List[schemas.FacultyBulkRow], db: Session) -> 
             if normalized_code:
                 existing_codes.add(normalized_code)
         except Exception as exc:
-            errors.append(f"Row {index}: {exc}")
+            errors.append(f"Row {row_idx}: {exc}")
 
     if created_count > 0:
         db.commit()
@@ -638,7 +659,7 @@ def create_faculty_bulk(payload: schemas.FacultyBulkCreate, db: Session = Depend
     return _create_faculty_records(payload.rows, db)
 
 @router.post("/faculty/bulk-upload", response_model=schemas.FacultyBulkResult)
-async def upload_faculty_bulk(file: UploadFile = File(...), db: Session = Depends(database.get_db)):
+async def upload_faculty_bulk(file: UploadFile = File(...), db: Session = Depends(database.get_db)) :
     filename = file.filename or ""
     extension = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
     file_bytes = await file.read()
@@ -653,17 +674,74 @@ async def upload_faculty_bulk(file: UploadFile = File(...), db: Session = Depend
             raw_rows = _read_xlsx_rows(file_bytes)
         else:
             raise HTTPException(status_code=400, detail="Only .csv and .xlsx files are supported")
-
-        rows = [_build_faculty_from_row(row) for row in raw_rows]
     except HTTPException:
         raise
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Failed to read file: {exc}")
 
-    if not rows:
+    if not raw_rows:
         raise HTTPException(status_code=400, detail="No faculty rows found in the uploaded file")
 
-    return _create_faculty_records(rows, db)
+    rows: List[schemas.FacultyBulkRow] = []
+    errors: List[str] = []
+
+    for index, row in enumerate(raw_rows, start=1):
+        try:
+            name_val = _find_field(row, ["name", "faculty_name", "full_name", "facultyname", "fullname"])
+            id_val = _find_field(row, ["faculty_id_code", "faculty_code", "id_code", "idcode", "id", "code", "faculty_id"])
+
+            name = str(name_val or "").strip()
+            faculty_id_code = str(id_val or "").strip() or None
+
+            if not name and not faculty_id_code:
+                raise ValueError("ID and Name are missing")
+            elif not name:
+                raise ValueError("Name is missing")
+            elif not faculty_id_code:
+                raise ValueError("ID is missing")
+
+            faculty_type = str(_find_field(row, ["faculty_type", "designation", "faculty_designation", "type", "role"]) or "ASSISTANT_PROFESSOR").strip()
+            
+            min_hrs = _parse_int(_find_field(row, ["min_hours_per_week", "min_hours", "min_load", "min", "minhours"]), 5)
+            max_hrs = _parse_int(_find_field(row, ["max_hours_per_week", "max_hours", "max_load", "max", "maxhours"]), 18)
+            
+            dept_codes = _split_department_codes(_find_field(row, ["department_codes", "department_code", "departments", "department", "dept", "depts", "dept_codes", "deptcodes"]))
+
+            bulk_row = schemas.FacultyBulkRow(
+                name=name,
+                faculty_id_code=faculty_id_code,
+                faculty_type=faculty_type,
+                min_hours_per_week=min_hrs,
+                max_hours_per_week=max_hrs,
+                department_codes=dept_codes,
+                row_number=index
+            )
+            rows.append(bulk_row)
+        except Exception as exc:
+            errors.append(f"Row {index}: {exc}")
+
+    # Process database records creation
+    res = _create_faculty_records(rows, db)
+    
+    # Merge errors
+    all_errors = errors + res["errors"]
+    
+    # Sort errors based on row index
+    def get_row_num(err_msg):
+        try:
+            if err_msg.startswith("Row "):
+                parts = err_msg.split(":", 1)
+                return int(parts[0].split()[1])
+        except Exception:
+            pass
+        return 999999
+    all_errors.sort(key=get_row_num)
+
+    return {
+        "created_count": res["created_count"],
+        "errors": all_errors
+    }
+
 
 @router.put("/faculty/{faculty_id}", response_model=schemas.Faculty)
 def update_faculty(faculty_id: int, faculty: schemas.FacultyCreate, db: Session = Depends(database.get_db)):

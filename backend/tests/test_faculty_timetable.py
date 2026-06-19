@@ -170,6 +170,63 @@ def test_section_conflict_is_reported_for_unrelated_subjects_in_same_slot():
     assert "Multiple unrelated subjects overlap" in result["errors"][0]
 
 
+def test_validation_fails_for_faculty_unavailable_slot():
+    db = make_session()
+
+    department = models.Department(name="AI Availability", code="AIA")
+    year = models.AcademicYear(name="Year 3", level=3, department=department)
+    section = models.Section(name="A", academic_year=year)
+    faculty = models.Faculty(name="Dr. Busy", faculty_id_code="BUSY1")
+    slot = models.TimeSlot(day="Monday", start_time=time(9, 0), end_time=time(10, 0), department_id=1)
+    subject = models.Subject(name="ML", code="ML501", department=department, semester=5, weekly_hours=1)
+    timetable = models.Timetable(section=section, semester=5, status="DRAFT")
+
+    db.add_all([department, year, section, faculty, slot, subject, timetable])
+    db.flush()
+    db.add_all([
+        models.FacultyAvailability(
+            faculty=faculty,
+            timeslot=slot,
+            status=models.FacultyAvailabilityStatus.UNAVAILABLE.value,
+        ),
+        models.TimetableEntry(timetable=timetable, subject=subject, faculty=faculty, timeslot=slot),
+    ])
+    db.commit()
+
+    result = validate_timetable_internal(timetable, db)
+
+    assert result["status"] == "FAIL"
+    assert any("Faculty availability violation" in error for error in result["errors"])
+
+
+def test_validation_reports_approved_commitment_conflict():
+    db = make_session()
+
+    department = models.Department(name="AI Commitment", code="AIC")
+    year = models.AcademicYear(name="Year 3", level=3, department=department)
+    section_a = models.Section(name="A", academic_year=year)
+    section_b = models.Section(name="B", academic_year=year)
+    faculty = models.Faculty(name="Dr. Committed", faculty_id_code="COM1")
+    slot = models.TimeSlot(day="Tuesday", start_time=time(10, 0), end_time=time(11, 0), department_id=1)
+    subject_one = models.Subject(name="NLP", code="NLP501", department=department, semester=5, weekly_hours=1)
+    subject_two = models.Subject(name="RL", code="RL501", department=department, semester=5, weekly_hours=1)
+    approved = models.Timetable(section=section_a, semester=5, status="APPROVED")
+    draft = models.Timetable(section=section_b, semester=5, status="DRAFT")
+
+    db.add_all([department, year, section_a, section_b, faculty, slot, subject_one, subject_two, approved, draft])
+    db.flush()
+    db.add_all([
+        models.TimetableEntry(timetable=approved, subject=subject_one, faculty=faculty, timeslot=slot),
+        models.TimetableEntry(timetable=draft, subject=subject_two, faculty=faculty, timeslot=slot),
+    ])
+    db.commit()
+
+    result = validate_timetable_internal(draft, db)
+
+    assert result["status"] == "FAIL"
+    assert any("Faculty commitment conflict" in error for error in result["errors"])
+
+
 def test_draft_timetables_are_treated_as_faculty_commitments():
     assert "DRAFT" in COMMITMENT_STATUSES
 

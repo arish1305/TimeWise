@@ -180,6 +180,8 @@ def register_hard_constraints(
     # 4. Faculty Non-Overlap & Prior Commitments Constraints
     prior_commitments = constraints.get("prior_commitments", {}) or {}
     prior_commitment_entries = constraints.get("prior_commitment_entries", {}) or {}
+    approved_commitments = constraints.get("approved_commitments", {}) or {}
+    faculty_availability = constraints.get("faculty_availability", {}) or {}
     
     def parse_fid(f_id):
         try:
@@ -187,10 +189,40 @@ def register_hard_constraints(
         except (ValueError, TypeError):
             return f_id
 
+    def parse_slot_id(slot_id):
+        try:
+            return int(slot_id)
+        except (ValueError, TypeError):
+            return slot_id
+
+    def iter_faculty_slot_mapping(mapping, slot_key):
+        if isinstance(mapping, list):
+            for item in mapping:
+                if not isinstance(item, dict):
+                    continue
+                fid = item.get("faculty_id")
+                if fid is None:
+                    continue
+                if "timeslot_id" in item:
+                    yield fid, [item.get("timeslot_id")]
+                else:
+                    yield fid, item.get(slot_key, []) or item.get("occupied_slots", []) or []
+            return
+
+        if isinstance(mapping, dict):
+            for fid, value in mapping.items():
+                if isinstance(value, dict):
+                    yield fid, value.get(slot_key, []) or value.get("occupied_slots", []) or []
+                else:
+                    yield fid, value or []
+
     fac_prior_slots = {}
-    for fid, slots in prior_commitments.items():
+    for fid, slots in iter_faculty_slot_mapping(prior_commitments, "occupied_slots"):
         pfid = parse_fid(fid)
-        fac_prior_slots.setdefault(pfid, set()).update(slots or [])
+        fac_prior_slots.setdefault(pfid, set()).update(parse_slot_id(slot) for slot in (slots or []))
+    for fid, slots in iter_faculty_slot_mapping(approved_commitments, "occupied_slots"):
+        pfid = parse_fid(fid)
+        fac_prior_slots.setdefault(pfid, set()).update(parse_slot_id(slot) for slot in (slots or []))
 
     fac_prior_subjects = {}
     for fid, entries in prior_commitment_entries.items():
@@ -200,6 +232,11 @@ def register_hard_constraints(
             sub_id = entry.get("subject_id")
             if ts_id is not None and sub_id is not None:
                 fac_prior_subjects.setdefault(pfid, {}).setdefault(ts_id, []).append(sub_id)
+
+    fac_unavailable_slots = {}
+    for fid, slots in iter_faculty_slot_mapping(faculty_availability, "unavailable_slots"):
+        pfid = parse_fid(fid)
+        fac_unavailable_slots.setdefault(pfid, set()).update(parse_slot_id(slot) for slot in (slots or []))
 
     faculty_prefs = constraints.get("faculty_preferences", {}) or {}
 
@@ -216,6 +253,11 @@ def register_hard_constraints(
 
         for t in timeslots:
             tid = t["id"]
+            if tid in fac_unavailable_slots.get(pfid, set()):
+                for sid in sids:
+                    model.Add(x[sid][tid] == 0)
+                continue
+
             has_prior = tid in fac_prior_slots.get(pfid, set())
             
             if has_prior:
@@ -249,8 +291,16 @@ def register_hard_constraints(
             locked_hours = locked_subject_hours.get(sid, 0)
             sessions_needed = max(0, weekly_hours - locked_hours)
             
-            blocks_needed = sessions_needed // continuous_hours if continuous_hours > 0 else 0
-            remainder = sessions_needed % continuous_hours if continuous_hours > 0 else 0
+            if sessions_needed >= continuous_hours:
+                blocks_needed = 1
+                remainder = sessions_needed - continuous_hours
+            else:
+                blocks_needed = 0
+                remainder = sessions_needed
+            logger.info(
+                "Subject: %s\nWeekly Hours: %s\nContinuous Hours: %s\nScheduling Pattern:\n%s mandatory %s-hour block\n%s independent hours",
+                s.get("name"), weekly_hours, continuous_hours, blocks_needed, continuous_hours, remainder
+            )
             
             if blocks_needed > 0:
                 all_block_starts = []

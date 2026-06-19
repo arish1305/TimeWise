@@ -124,7 +124,7 @@ def calculate_complexity(
         weekly_hours = int(s.get("weekly_hours"))
         locked_hours = len([ls for ls in locked_slots if ls.get("subject_id") == sid])
         sessions_needed = max(0, weekly_hours - locked_hours)
-        blocks_needed = sessions_needed // continuous_hours if continuous_hours > 0 else 0
+        blocks_needed = 1 if sessions_needed >= continuous_hours else 0
         
         if continuous_hours > 1:
             if blocks_needed > 0:

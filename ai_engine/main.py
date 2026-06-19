@@ -34,6 +34,38 @@ def optimize_schedule(request: OptimizationRequest):
     start_time = time.time()
     constraints = request.constraints or {}
     locked_slots = request.locked_slots or []
+
+    def _parse_fid(fid):
+        try:
+            return int(fid)
+        except (TypeError, ValueError):
+            return fid
+
+    def _parse_slot_id(slot_id):
+        try:
+            return int(slot_id)
+        except (TypeError, ValueError):
+            return slot_id
+
+    def _slot_set_for(mapping, fid, slot_key):
+        normalized_fid = _parse_fid(fid)
+        if isinstance(mapping, dict):
+            config = mapping.get(normalized_fid) or mapping.get(str(normalized_fid))
+            if isinstance(config, dict):
+                return {_parse_slot_id(slot_id) for slot_id in (config.get(slot_key, []) or config.get("occupied_slots", []) or [])}
+            return {_parse_slot_id(slot_id) for slot_id in (config or [])}
+        if isinstance(mapping, list):
+            slots = set()
+            for item in mapping:
+                if not isinstance(item, dict) or _parse_fid(item.get("faculty_id")) != normalized_fid:
+                    continue
+                if "timeslot_id" in item:
+                    slots.add(_parse_slot_id(item.get("timeslot_id")))
+                else:
+                    slots.update(_parse_slot_id(slot_id) for slot_id in (item.get(slot_key, []) or item.get("occupied_slots", []) or []))
+            return slots
+        return set()
+
     logger.info(
         "Optimize request received: semester=%s, subjects=%s, faculty=%s, timeslots=%s, locked_entries=%s, coverage_mode=%s, partial=%s",
         request.semester,
@@ -44,6 +76,17 @@ def optimize_schedule(request: OptimizationRequest):
         constraints.get("coverage_mode"),
         constraints.get("allow_partial_schedule", False),
     )
+    faculty_availability = constraints.get("faculty_availability", {}) or {}
+    prior_commitments = constraints.get("prior_commitments", {}) or {}
+    for faculty in request.faculty:
+        fid = faculty.get("id")
+        logger.info(
+            "Faculty Availability Summary: faculty_id=%s, preferred=%s, unavailable=%s, commitments=%s",
+            fid,
+            len(_slot_set_for(faculty_availability, fid, "preferred_slots")),
+            len(_slot_set_for(faculty_availability, fid, "unavailable_slots")),
+            len(_slot_set_for(prior_commitments, fid, "occupied_slots")),
+        )
     
     # Strict validation of weekly_hours
     for s in request.subjects:
@@ -78,7 +121,8 @@ def optimize_schedule(request: OptimizationRequest):
             base_seed = hash(str(base_seed)) & 0x7fffffff
             
     # Generate several diverse candidates so peer-timetable penalties have room to work.
-    target_candidate_count = int(constraints.get("candidate_limit", 15) or 15)
+    default_candidate_count = 15 if constraints.get("peer_timetables") else 1
+    target_candidate_count = int(constraints.get("candidate_limit", default_candidate_count) or default_candidate_count)
     target_candidate_count = max(1, min(30, target_candidate_count))
     candidates = []
     rejected_info = []
@@ -186,6 +230,24 @@ def optimize_schedule(request: OptimizationRequest):
     candidates.sort(key=lambda x: x["objective_value"], reverse=True)
     best_candidate = candidates[0]
     best_coverage = best_candidate.get("coverage_report") or {}
+    for faculty in request.faculty:
+        fid = faculty.get("id")
+        scheduled_slots = {
+            _parse_slot_id(entry.get("timeslot_id"))
+            for entry in best_candidate["schedule"]
+            if entry.get("faculty_id") == fid
+        }
+        preferred_slots = _slot_set_for(faculty_availability, fid, "preferred_slots")
+        unavailable_slots = _slot_set_for(faculty_availability, fid, "unavailable_slots")
+        commitment_slots = _slot_set_for(prior_commitments, fid, "occupied_slots")
+        logger.info(
+            "Faculty Utilization Report: faculty_id=%s, preferred_used=%s/%s, unavailable_violations=%s, commitment_violations=%s",
+            fid,
+            len(scheduled_slots & preferred_slots),
+            len(preferred_slots),
+            len(scheduled_slots & unavailable_slots),
+            len(scheduled_slots & commitment_slots),
+        )
     
     # Calculate health metrics for the best candidate
     best_health = health_metrics.calculate_health_metrics(

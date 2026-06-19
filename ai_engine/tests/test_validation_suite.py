@@ -203,6 +203,66 @@ def test_partial_coverage_fills_available_slots_without_failing():
     assert schedule[0]["timeslot_id"] == 3
 
 
+def test_faculty_unavailable_slot_is_hard_constraint():
+    timeslots = [
+        {"id": 1, "day": "Monday", "time": "09:00:00", "end_time": "10:00:00", "is_break": False},
+        {"id": 2, "day": "Monday", "time": "10:00:00", "end_time": "11:00:00", "is_break": False},
+    ]
+    subjects = [
+        {"id": 1, "name": "DBMS", "weekly_hours": 1, "faculty_id": 10, "is_elective": False}
+    ]
+    faculty = [{"id": 10, "name": "Dr. Turing"}]
+    constraints = {
+        "random_seed": 42,
+        "faculty_availability": {10: {"preferred_slots": [], "unavailable_slots": [1]}},
+    }
+
+    solver = CPSatSolver(subjects, faculty, timeslots, constraints)
+    schedule = solver.solve()
+
+    assert schedule == [{"subject_id": 1, "faculty_id": 10, "timeslot_id": 2}]
+
+
+def test_approved_commitment_slot_is_hard_constraint():
+    timeslots = [
+        {"id": 1, "day": "Monday", "time": "09:00:00", "end_time": "10:00:00", "is_break": False},
+        {"id": 2, "day": "Monday", "time": "10:00:00", "end_time": "11:00:00", "is_break": False},
+    ]
+    subjects = [
+        {"id": 1, "name": "DBMS", "weekly_hours": 1, "faculty_id": 10, "is_elective": False}
+    ]
+    faculty = [{"id": 10, "name": "Dr. Turing"}]
+    constraints = {
+        "random_seed": 42,
+        "approved_commitments": {10: [1]},
+    }
+
+    solver = CPSatSolver(subjects, faculty, timeslots, constraints)
+    schedule = solver.solve()
+
+    assert schedule == [{"subject_id": 1, "faculty_id": 10, "timeslot_id": 2}]
+
+
+def test_faculty_preferred_slot_is_soft_bonus():
+    timeslots = [
+        {"id": 1, "day": "Monday", "time": "09:00:00", "end_time": "10:00:00", "is_break": False},
+        {"id": 2, "day": "Tuesday", "time": "09:00:00", "end_time": "10:00:00", "is_break": False},
+    ]
+    subjects = [
+        {"id": 1, "name": "DBMS", "weekly_hours": 1, "faculty_id": 10, "is_elective": False}
+    ]
+    faculty = [{"id": 10, "name": "Dr. Turing"}]
+    constraints = {
+        "random_seed": 42,
+        "faculty_availability": {10: {"preferred_slots": [2], "unavailable_slots": []}},
+    }
+
+    solver = CPSatSolver(subjects, faculty, timeslots, constraints)
+    schedule = solver.solve()
+
+    assert schedule == [{"subject_id": 1, "faculty_id": 10, "timeslot_id": 2}]
+
+
 def test_peer_timetable_constraint_avoids_duplicate_section_signature():
     timeslots = [
         {"id": 1, "day": "Monday", "time": "09:00:00", "end_time": "10:00:00", "is_break": False},
@@ -262,3 +322,73 @@ def test_partial_coverage_skips_impossible_continuous_block_subject():
 
     assert all(entry["subject_id"] != 1 for entry in schedule)
     assert any(entry["subject_id"] == 2 for entry in schedule)
+
+
+def test_theory_subject_continuous_redefinition_5_hours():
+    timeslots = _build_base_timeslots()
+    subjects = [
+        {"id": 1, "name": "Theory A", "weekly_hours": 5, "continuous_hours": 2, "subject_type": "THEORY", "faculty_id": None, "is_elective": False}
+    ]
+    constraints = {"random_seed": 42}
+    
+    solver = CPSatSolver(subjects, [], timeslots, constraints)
+    schedule = solver.solve()
+    
+    assert len(schedule) == 5
+    
+    slots_map = {t["id"]: t for t in timeslots}
+    day_counts = {}
+    for entry in schedule:
+        slot = slots_map[entry["timeslot_id"]]
+        day = slot["day"]
+        day_counts[day] = day_counts.get(day, 0) + 1
+        
+    counts = sorted(list(day_counts.values()))
+    assert counts == [1, 1, 1, 2]
+
+
+def test_theory_subject_continuous_redefinition_4_hours():
+    timeslots = _build_base_timeslots()
+    subjects = [
+        {"id": 1, "name": "Theory B", "weekly_hours": 4, "continuous_hours": 2, "subject_type": "THEORY", "faculty_id": None, "is_elective": False}
+    ]
+    constraints = {"random_seed": 42}
+    
+    solver = CPSatSolver(subjects, [], timeslots, constraints)
+    schedule = solver.solve()
+    
+    assert len(schedule) == 4
+    
+    slots_map = {t["id"]: t for t in timeslots}
+    day_counts = {}
+    for entry in schedule:
+        slot = slots_map[entry["timeslot_id"]]
+        day = slot["day"]
+        day_counts[day] = day_counts.get(day, 0) + 1
+        
+    counts = sorted(list(day_counts.values()))
+    assert counts == [1, 1, 2]
+
+
+def test_lab_subject_continuous_redefinition_4_hours():
+    timeslots = _build_base_timeslots()
+    subjects = [
+        {"id": 1, "name": "Lab Chem", "weekly_hours": 4, "continuous_hours": 2, "subject_type": "LAB", "faculty_id": None, "is_elective": False}
+    ]
+    constraints = {"random_seed": 42}
+    
+    solver = CPSatSolver(subjects, [], timeslots, constraints)
+    schedule = solver.solve()
+    
+    assert len(schedule) == 4
+    
+    slots_map = {t["id"]: t for t in timeslots}
+    day_counts = {}
+    for entry in schedule:
+        slot = slots_map[entry["timeslot_id"]]
+        day = slot["day"]
+        day_counts[day] = day_counts.get(day, 0) + 1
+        
+    counts = sorted(list(day_counts.values()))
+    assert counts == [1, 1, 2]
+

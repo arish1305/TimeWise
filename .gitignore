@@ -48,3 +48,11 @@ docker-compose.override.yml
 *.sw?
 .DS_Store
 Thumbs.db
+
+# Local debug / logs
+frontend_logs.txt
+temp_git_log.txt
+scratch_debug.py
+
+# Diagnostics & Reports
+diagnostics/

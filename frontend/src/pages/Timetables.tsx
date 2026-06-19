@@ -6,6 +6,7 @@ import '../styles/Timetables.css';
 import { downloadAllTimetablesPdf } from '../utils/pdfExport';
 import { downloadAllTimetablesWord } from '../utils/wordExport';
 import AppLogo from '../components/AppLogo';
+import { formatTime12Hour } from '../utils/timeFormat';
 
 const Timetables = () => {
     // Data State
@@ -281,14 +282,9 @@ const Timetables = () => {
             }
         });
 
-        const formatTime = (t: string) => {
-            const [h, m] = t.split(':');
-            return `${parseInt(h)}:${m}`;
-        };
-
         const formatRange = (start: string, end: string) => {
-            const s = formatTime(start);
-            const e = formatTime(end);
+            const s = formatTime12Hour(start);
+            const e = formatTime12Hour(end);
             return `${s} - ${e}`;
         };
 
@@ -510,6 +506,7 @@ const Timetables = () => {
                                 value={semester}
                                 onChange={(e) => setSemester(parseInt(e.target.value))}
                                 min="1" max="8"
+                                placeholder="Enter Semester (1-8)"
                                 style={{ width: '100%', boxSizing: 'border-box' }}
                             />
                         </div>
@@ -655,9 +652,11 @@ const Timetables = () => {
                                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
                                                     <div>
                                                         <div className="item-title">
+                                                            {tt.section?.academic_year?.department?.code ? `${tt.section.academic_year.department.code} - ` : ''}
                                                             {tt.section?.academic_year?.name || 'Unknown Year'} - Section {tt.section?.name || 'Unknown'}
                                                         </div>
                                                         <div className="item-subtitle">
+                                                            {tt.section?.academic_year?.department?.name ? `${tt.section.academic_year.department.name} • ` : ''}
                                                             Semester {tt.semester} • {tt.entries?.length || 0} classes
                                                             <span style={{ marginLeft: '8px', padding: '2px 6px', borderRadius: '4px', fontSize: '0.75rem', background: tt.status === 'ACTIVE' ? '#dcfce7' : tt.status === 'ARCHIVED' ? '#f1f5f9' : '#fef9c3', color: tt.status === 'ACTIVE' ? '#166534' : tt.status === 'ARCHIVED' ? '#475569' : '#854d0e' }}>
                                                                 {tt.status}
@@ -665,7 +664,7 @@ const Timetables = () => {
                                                         </div>
                                                         {tt.created_at && (
                                                             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-                                                                Generated on: {new Date(tt.created_at).toLocaleString()} (v{tt.version || 1})
+                                                                Generated on: {new Date(tt.created_at).toLocaleString([], { hour: 'numeric', minute: '2-digit', hour12: true })} (v{tt.version || 1})
                                                             </div>
                                                         )}
                                                     </div>

@@ -28,6 +28,7 @@ import api from '../api/axios';
 import '../styles/VisualTimetables.css';
 import { downloadAllTimetablesPdf } from '../utils/pdfExport';
 import { downloadAllTimetablesWord } from '../utils/wordExport';
+import { formatTime12Hour, formatTimeRange12Hour } from '../utils/timeFormat';
 
 type Slot = {
     id: number;
@@ -1037,10 +1038,11 @@ const VisualTimetables = () => {
                         <div className="panel-search-box">
                             <Search className="search-icon" size={14} />
                             <input 
-                                placeholder={viewMode === 'faculty' ? "Search faculty..." : "Search timetables..."}
+                                placeholder={viewMode === 'faculty' ? "Type to search faculty..." : "Type to search timetables..."}
                                 value={sidebarSearch}
                                 onChange={e => setSidebarSearch(e.target.value)}
                                 className="search-input"
+                                aria-label="Search"
                             />
                         </div>
 
@@ -1160,10 +1162,11 @@ const VisualTimetables = () => {
                             <Filter className="search-icon" size={14} />
                             <input 
                                 type="text" 
-                                placeholder="Highlight by Code/Faculty/Room..."
+                                placeholder="Enter Subject Code, Faculty, or Room..."
                                 value={searchQuery}
                                 onChange={e => setSearchQuery(e.target.value)}
                                 className="search-input"
+                                aria-label="Highlighter filter"
                             />
                         </div>
                     </div>
@@ -1216,7 +1219,7 @@ const VisualTimetables = () => {
                                                     <tr key={`break-${row.start_time}`} className="grid-break-row">
                                                         <td className="time-col break-time">
                                                             <Clock3 size={12} />
-                                                            <span>{row.start_time.slice(0, 5)} - {row.end_time.slice(0, 5)}</span>
+                                                            <span>{formatTimeRange12Hour(row.start_time, row.end_time)}</span>
                                                         </td>
                                                         <td colSpan={dayColumns.length} className="break-cell-span">
                                                             <div className="break-label-wrapper">
@@ -1232,7 +1235,7 @@ const VisualTimetables = () => {
                                                 <tr key={`row-${row.start_time}`}>
                                                     <td className="time-col">
                                                         <Clock3 size={13} />
-                                                        <span>{row.start_time.slice(0, 5)} - {row.end_time.slice(0, 5)}</span>
+                                                        <span>{formatTimeRange12Hour(row.start_time, row.end_time)}</span>
                                                     </td>
                                                     {dayColumns.map(day => {
                                                         const realSlot = board.time_slots.find(s => 
@@ -1466,7 +1469,7 @@ const VisualTimetables = () => {
                                 suggestions.map((s, i) => (
                                     <div key={i} className="suggestion-item">
                                         <div className="suggestion-meta">
-                                            <span className="suggestion-time">{s.day} • {s.start_time?.slice(0, 5)}</span>
+                                            <span className="suggestion-time">{s.day} • {formatTime12Hour(s.start_time)}</span>
                                             <span className="suggestion-reason">{s.reason}</span>
                                         </div>
                                     </div>
@@ -1494,7 +1497,7 @@ const VisualTimetables = () => {
                                                     <span className="log-version">v{item.version}</span>
                                                 </div>
                                                 <span className="log-time">
-                                                    {new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                    {new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true })}
                                                 </span>
                                             </div>
                                         </div>

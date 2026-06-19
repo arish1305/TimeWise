@@ -5,6 +5,12 @@ import json
 import logging
 import os
 import random
+import sys
+
+# Insert the workspace root to sys.path to allow importing from the common package
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
+
+from common.combined_class import is_combined_class, is_shared_combined_class
 
 from database import get_db
 import models
@@ -82,12 +88,29 @@ def _time_value(value: Any) -> str:
 def _entries_share_cbcs_session(left: models.TimetableEntry, right: models.TimetableEntry) -> bool:
     if not left.subject or not right.subject:
         return False
-    return (
-        left.subject_id == right.subject_id
-        and left.faculty_id == right.faculty_id
-        and left.timeslot_id == right.timeslot_id
-        and _is_cbcs_subject(left.subject)
-        and _is_cbcs_subject(right.subject)
+    
+    fac_name = left.faculty.name if left.faculty else "Unknown"
+    sub_code = left.subject.code if left.subject else "Unknown"
+    sub_name = left.subject.name if left.subject else "Unknown"
+    
+    sec_1 = left.timetable.section.name if (left.timetable and left.timetable.section) else "Unknown"
+    sec_2 = right.timetable.section.name if (right.timetable and right.timetable.section) else "Unknown"
+    
+    is_diff = (left.timetable_id != right.timetable_id)
+    
+    return is_shared_combined_class(
+        subject=left.subject,
+        conflict_subject=right.subject,
+        slot_id=left.timeslot_id,
+        faculty_id=left.faculty_id,
+        conflict_faculty_id=right.faculty_id,
+        conflict_slot_id=right.timeslot_id,
+        is_different_section=is_diff,
+        faculty_name=fac_name,
+        subject_code=sub_code,
+        subject_name=sub_name,
+        current_section=sec_1,
+        conflict_section=sec_2
     )
 
 
@@ -251,10 +274,40 @@ def _is_faculty_conflict_for_slot(
     if not conflicts:
         return False
 
-    for conflict in conflicts:
-        if conflict.subject_id != subject_id:
-            return True
-    return False
+    if subject_id:
+        subject = db.query(models.Subject).get(subject_id)
+        if subject:
+            all_bypassed = True
+            for conflict in conflicts:
+                fac_name = conflict.faculty.name if conflict.faculty else "Unknown"
+                sub_code = subject.code
+                sub_name = subject.name
+                sec_1 = db.query(models.Timetable).get(timetable_id)
+                sec_1_name = sec_1.section.name if (sec_1 and sec_1.section) else "Unknown"
+                sec_2_name = conflict.timetable.section.name if (conflict.timetable and conflict.timetable.section) else "Unknown"
+                is_diff = (timetable_id != conflict.timetable_id)
+                
+                bypassed = is_shared_combined_class(
+                    subject=subject,
+                    conflict_subject=conflict.subject,
+                    slot_id=slot_id,
+                    faculty_id=faculty_id,
+                    conflict_faculty_id=conflict.faculty_id,
+                    conflict_slot_id=conflict.timeslot_id,
+                    is_different_section=is_diff,
+                    faculty_name=fac_name,
+                    subject_code=sub_code,
+                    subject_name=sub_name,
+                    current_section=sec_1_name,
+                    conflict_section=sec_2_name
+                )
+                if not bypassed:
+                    all_bypassed = False
+                    break
+            if all_bypassed:
+                return False
+
+    return True
 
 
 def _section_has_non_overlap_entry(
@@ -534,13 +587,37 @@ def _faculty_can_take_slot_for_entry(
         return True
 
     current_subject = entry.subject
-    if not current_subject or not _is_cbcs_subject(current_subject):
+    if not current_subject:
         return False
 
+    all_bypassed = True
     for conflict in conflicting_entries:
-        if conflict.subject_id != entry.subject_id:
-            return False
-    return True
+        fac_name = entry.faculty.name if entry.faculty else "Unknown"
+        sub_code = current_subject.code
+        sub_name = current_subject.name
+        sec_1 = timetable.section.name if (timetable and timetable.section) else "Unknown"
+        sec_2 = conflict.timetable.section.name if (conflict.timetable and conflict.timetable.section) else "Unknown"
+        is_diff = (timetable.id != conflict.timetable_id)
+        
+        bypassed = is_shared_combined_class(
+            subject=current_subject,
+            conflict_subject=conflict.subject,
+            slot_id=candidate_slot_id,
+            faculty_id=entry.faculty_id,
+            conflict_faculty_id=conflict.faculty_id,
+            conflict_slot_id=conflict.timeslot_id,
+            is_different_section=is_diff,
+            faculty_name=fac_name,
+            subject_code=sub_code,
+            subject_name=sub_name,
+            current_section=sec_1,
+            conflict_section=sec_2
+        )
+        if not bypassed:
+            all_bypassed = False
+            break
+
+    return all_bypassed
 
 
 def _attempt_duplicate_repair(
@@ -1037,6 +1114,8 @@ def generate_timetable(
                 "is_elective": s.is_elective,
                 "elective_group_id": s.elective_group_id,
                 "is_cbcs_shared": _is_cbcs_subject(s),
+                "is_cbcs": _is_cbcs_subject(s) or s.is_elective,
+                "manual_timeslot_ids": s.manual_timeslot_ids or [],
             })
 
         faculty_id_list = sorted(faculty_ids)

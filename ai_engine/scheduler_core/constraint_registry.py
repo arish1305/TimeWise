@@ -1,6 +1,13 @@
 from typing import Dict, Any, List, Set
 from ortools.sat.python import cp_model
 import logging
+import sys
+import os
+
+# Insert the workspace root to sys.path to allow importing from the common package
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
+
+from common.combined_class import is_combined_class, is_shared_combined_class
 
 logger = logging.getLogger(__name__)
 
@@ -225,13 +232,16 @@ def register_hard_constraints(
         fac_prior_slots.setdefault(pfid, set()).update(parse_slot_id(slot) for slot in (slots or []))
 
     fac_prior_subjects = {}
+    fac_prior_section_names = {}
     for fid, entries in prior_commitment_entries.items():
         pfid = parse_fid(fid)
         for entry in entries or []:
             ts_id = entry.get("timeslot_id")
             sub_id = entry.get("subject_id")
+            sec_name = entry.get("section_name") or "Unknown"
             if ts_id is not None and sub_id is not None:
                 fac_prior_subjects.setdefault(pfid, {}).setdefault(ts_id, []).append(sub_id)
+                fac_prior_section_names.setdefault(pfid, {}).setdefault(ts_id, {})[sub_id] = sec_name
 
     fac_unavailable_slots = {}
     for fid, slots in iter_faculty_slot_mapping(faculty_availability, "unavailable_slots"):
@@ -265,7 +275,30 @@ def register_hard_constraints(
                 cbcs_sid = None
                 for sid in sids:
                     subj = subjects_by_id[sid]
-                    if subj.get("is_cbcs_shared") and subj["id"] in prior_sids:
+                    
+                    is_bypassed = False
+                    for prior_sid in prior_sids:
+                        prior_subj = subjects_by_id.get(prior_sid)
+                        if prior_subj:
+                            conflict_sec = fac_prior_section_names.get(pfid, {}).get(tid, {}).get(prior_sid, "Unknown")
+                            is_bypassed = is_shared_combined_class(
+                                subject=subj,
+                                conflict_subject=prior_subj,
+                                slot_id=tid,
+                                faculty_id=pfid,
+                                conflict_faculty_id=pfid,
+                                conflict_slot_id=tid,
+                                is_different_section=True,
+                                faculty_name=f.get("name") or str(pfid),
+                                subject_code=subj.get("code") or str(subj["id"]),
+                                subject_name=subj.get("name") or "Unknown",
+                                current_section=constraints.get("section_name") or "Unknown",
+                                conflict_section=conflict_sec
+                            )
+                            if is_bypassed:
+                                break
+                    
+                    if is_bypassed:
                         cbcs_sid = sid
                         break
                         

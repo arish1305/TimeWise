@@ -426,3 +426,45 @@ def test_similarity_score_detects_same_slot_subject_pattern():
 
     score = _section_similarity_score(tt_draft, db)
     assert score > 0
+
+
+def test_backend_validation_bypasses_combined_locked_class_conflicts():
+    db = make_session()
+
+    department = models.Department(name="CSE", code="CSE")
+    db.add(department)
+    db.flush()
+
+    year = models.AcademicYear(name="Year 3", level=3, department=department)
+    section_a = models.Section(name="A1", academic_year=year, section_name="A1", year=3)
+    section_b = models.Section(name="A2", academic_year=year, section_name="A2", year=3)
+    
+    faculty = models.Faculty(name="Ms. R. Abirami", faculty_id_code="FAC200")
+    slot = models.TimeSlot(day="Monday", start_time=time(9, 0), end_time=time(10, 0), department_id=department.id)
+    
+    db.add_all([year, section_a, section_b, faculty, slot])
+    db.flush()
+    
+    subject = models.Subject(
+        name="5G Networks",
+        code="SCSB4001",
+        department=department,
+        semester=5,
+        weekly_hours=3,
+        is_elective=True,
+        manual_timeslot_ids=[slot.id]
+    )
+
+    tt_a = models.Timetable(section=section_a, semester=5, status="APPROVED")
+    tt_b = models.Timetable(section=section_b, semester=5, status="DRAFT")
+
+    db.add_all([subject, tt_a, tt_b])
+    db.flush()
+
+    db.add(models.TimetableEntry(timetable=tt_a, subject=subject, faculty=faculty, timeslot=slot, is_locked=True))
+    db.add(models.TimetableEntry(timetable=tt_b, subject=subject, faculty=faculty, timeslot=slot, is_locked=True))
+    db.commit()
+
+    result = validate_timetable_internal(tt_b, db)
+    assert result["errors"] == []
+    assert result["status"] == "PASS"

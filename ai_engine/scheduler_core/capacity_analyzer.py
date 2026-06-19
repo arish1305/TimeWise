@@ -1,5 +1,12 @@
 import logging
 from typing import List, Dict, Any
+import sys
+import os
+
+# Insert the workspace root to sys.path to allow importing from the common package
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
+
+from common.combined_class import is_combined_class, is_shared_combined_class
 
 logger = logging.getLogger(__name__)
 
@@ -108,10 +115,59 @@ def analyze_capacity(
         except (ValueError, TypeError):
             return f_id
 
+    def parse_slot_id(slot_id):
+        try:
+            return int(slot_id)
+        except (ValueError, TypeError):
+            return slot_id
+
+    prior_commitment_entries = constraints.get("prior_commitment_entries", {}) or {}
+    fac_prior_subjects = {}
+    fac_prior_section_names = {}
+    for fid, entries in prior_commitment_entries.items():
+        pfid = parse_fid(fid)
+        for entry in entries or []:
+            ts_id = entry.get("timeslot_id")
+            sub_id = entry.get("subject_id")
+            sec_name = entry.get("section_name") or "Unknown"
+            if ts_id is not None and sub_id is not None:
+                fac_prior_subjects.setdefault(pfid, {}).setdefault(ts_id, []).append(sub_id)
+                fac_prior_section_names.setdefault(pfid, {}).setdefault(ts_id, {})[sub_id] = sec_name
+
     fac_prior_slots = {}
     for fid, slots in prior_commitments.items():
         pfid = parse_fid(fid)
-        fac_prior_slots.setdefault(pfid, set()).update(slots or [])
+        fac_obj = next((fac for fac in faculty if parse_fid(fac.get("id")) == pfid), {})
+        fac_name = fac_obj.get("name") or str(pfid)
+        
+        for slot in (slots or []):
+            ts_id = parse_slot_id(slot)
+            
+            is_combined_bypass = False
+            prior_sids = fac_prior_subjects.get(pfid, {}).get(ts_id, [])
+            for prior_sid in prior_sids:
+                s = subjects_by_id.get(prior_sid)
+                if s and parse_fid(s.get("faculty_id")) == pfid:
+                    conflict_sec = fac_prior_section_names.get(pfid, {}).get(ts_id, {}).get(prior_sid, "Unknown")
+                    if is_shared_combined_class(
+                        subject=s,
+                        conflict_subject=s,
+                        slot_id=ts_id,
+                        faculty_id=pfid,
+                        conflict_faculty_id=pfid,
+                        conflict_slot_id=ts_id,
+                        is_different_section=True,
+                        faculty_name=fac_name,
+                        subject_code=s.get("code") or str(s["id"]),
+                        subject_name=s.get("name") or "Unknown",
+                        current_section=constraints.get("section_name") or "Unknown",
+                        conflict_section=conflict_sec
+                    ):
+                        is_combined_bypass = True
+                        break
+            
+            if not is_combined_bypass:
+                fac_prior_slots.setdefault(pfid, set()).add(ts_id)
 
     total_fac_capacity = 0
     if faculty:

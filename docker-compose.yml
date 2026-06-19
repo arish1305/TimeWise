@@ -14,7 +14,8 @@ services:
 
   backend:
     build: 
-      context: ./backend
+      context: .
+      dockerfile: ./backend/Dockerfile
     container_name: timewise_backend
     ports:
       - "8000:8000"
@@ -29,7 +30,8 @@ services:
 
   ai_engine:
     build:
-      context: ./ai_engine
+      context: .
+      dockerfile: ./ai_engine/Dockerfile
     container_name: timewise_ai
     ports:
       - "8001:8001"

@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.exc import IntegrityError
 from typing import List, Optional, Dict, Any
 import csv
@@ -366,6 +366,8 @@ def delete_department(dept_id: int, db: Session = Depends(database.get_db)):
 # --- Academic Years ---
 @router.post("/academic-years", response_model=schemas.AcademicYear)
 def create_academic_year(year: schemas.AcademicYearCreate, db: Session = Depends(database.get_db)):
+    if year.level < 1 or year.level > 4:
+        raise HTTPException(status_code=400, detail="Year level must be between 1 and 4.")
     db_year = models.AcademicYear(**year.dict())
     db.add(db_year)
     db.commit()
@@ -381,6 +383,8 @@ def read_academic_years(department_id: int = None, db: Session = Depends(databas
 
 @router.put("/academic-years/{year_id}", response_model=schemas.AcademicYear)
 def update_academic_year(year_id: int, year: schemas.AcademicYearCreate, db: Session = Depends(database.get_db)):
+    if year.level < 1 or year.level > 4:
+        raise HTTPException(status_code=400, detail="Year level must be between 1 and 4.")
     db_year = db.query(models.AcademicYear).filter(models.AcademicYear.id == year_id).first()
     if not db_year:
         raise HTTPException(status_code=404, detail="Academic Year not found")
@@ -424,10 +428,30 @@ def create_section(section: schemas.SectionCreate, db: Session = Depends(databas
     return db_section
 
 @router.get("/sections", response_model=List[schemas.Section])
-def read_sections(year_id: int = None, db: Session = Depends(database.get_db)):
+def read_sections(
+    year_id: Optional[int] = None,
+    department_id: Optional[int] = None,
+    department: Optional[str] = None,
+    semester: Optional[int] = None,
+    db: Session = Depends(database.get_db)
+):
     q = db.query(models.Section)
-    if year_id:
+    if year_id is not None:
         q = q.filter(models.Section.academic_year_id == year_id)
+    
+    if department_id is not None or department is not None or semester is not None:
+        q = q.join(models.AcademicYear)
+        if department_id is not None:
+            q = q.filter(models.AcademicYear.department_id == department_id)
+        elif department is not None:
+            if department.isdigit():
+                q = q.filter(models.AcademicYear.department_id == int(department))
+            else:
+                q = q.join(models.Department, models.AcademicYear.department_id == models.Department.id).filter(models.Department.code == department)
+        if semester is not None:
+            target_level = (semester + 1) // 2
+            q = q.filter(models.AcademicYear.level == target_level)
+            
     return q.all()
 
 @router.put("/sections/{section_id}", response_model=schemas.Section)
@@ -552,10 +576,24 @@ def create_subject(subject: schemas.SubjectCreate, db: Session = Depends(databas
     return db_subject
 
 @router.get("/subjects", response_model=List[schemas.Subject])
-def read_subjects(department_id: int = None, skip: int = 0, limit: int = 100, db: Session = Depends(database.get_db)):
+def read_subjects(
+    department_id: Optional[int] = None,
+    department: Optional[str] = None,
+    semester: Optional[int] = None,
+    skip: int = 0,
+    limit: int = 100,
+    db: Session = Depends(database.get_db)
+):
     q = db.query(models.Subject)
-    if department_id:
+    if department_id is not None:
         q = q.filter(models.Subject.department_id == department_id)
+    elif department is not None:
+        if department.isdigit():
+            q = q.filter(models.Subject.department_id == int(department))
+        else:
+            q = q.join(models.Department).filter(models.Department.code == department)
+    if semester is not None:
+        q = q.filter(models.Subject.semester == semester)
     return q.offset(skip).limit(limit).all()
 
 @router.put("/subjects/{subject_id}", response_model=schemas.Subject)
@@ -952,3 +990,198 @@ def delete_timeslot(timeslot_id: int, db: Session = Depends(database.get_db)):
     db.delete(timeslot)
     db.commit()
     return {"message": "TimeSlot deleted"}
+
+
+# --- Filtered/ ERP Faculty Assignment Endpoints ---
+
+@router.get("/departments/{dept_id}/years", response_model=List[schemas.AcademicYear])
+def get_department_years(dept_id: int, db: Session = Depends(database.get_db)):
+    return db.query(models.AcademicYear).filter(
+        models.AcademicYear.department_id == dept_id
+    ).order_by(models.AcademicYear.level, models.AcademicYear.name).all()
+
+
+@router.get("/departments/{dept_id}/semesters", response_model=List[int])
+def get_department_semesters(dept_id: int, db: Session = Depends(database.get_db)):
+    years = db.query(models.AcademicYear).filter(models.AcademicYear.department_id == dept_id).all()
+    semesters = set()
+    for y in years:
+        semesters.add(2 * y.level - 1)
+        semesters.add(2 * y.level)
+    return sorted(list(semesters))
+
+
+@router.get("/faculty/{faculty_id}/assignments", response_model=List[schemas.FacultySubjectAssignment])
+def get_faculty_assignments(faculty_id: int, db: Session = Depends(database.get_db)):
+    faculty = db.query(models.Faculty.id).filter(models.Faculty.id == faculty_id).first()
+    if not faculty:
+        raise HTTPException(status_code=404, detail="Faculty not found")
+    return _faculty_assignment_query(db, faculty_id).all()
+
+
+def _faculty_assignment_query(db: Session, faculty_id: int):
+    return db.query(models.FacultySubjectAssignment).options(
+        selectinload(models.FacultySubjectAssignment.subject)
+    ).filter(models.FacultySubjectAssignment.faculty_id == faculty_id).order_by(
+        models.FacultySubjectAssignment.id
+    )
+
+
+def _validate_assignment_sections(
+    db: Session,
+    subject: models.Subject,
+    section_ids: Optional[List[int]],
+) -> Optional[List[int]]:
+    if not section_ids:
+        return None
+
+    normalized_ids = list(dict.fromkeys(section_ids))
+    sections = db.query(models.Section).options(
+        selectinload(models.Section.academic_year)
+    ).filter(models.Section.id.in_(normalized_ids)).all()
+    sections_by_id = {section.id: section for section in sections}
+    missing_ids = [section_id for section_id in normalized_ids if section_id not in sections_by_id]
+    if missing_ids:
+        raise HTTPException(status_code=404, detail=f"Section IDs not found: {missing_ids}")
+
+    allowed_department_ids = set(subject.allowed_department_ids or [])
+    if subject.department_id is not None:
+        allowed_department_ids.add(subject.department_id)
+    expected_level = (subject.semester + 1) // 2
+    invalid_sections = [
+        section.name or f"Section {section.id}"
+        for section in sections
+        if not section.academic_year
+        or section.academic_year.department_id not in allowed_department_ids
+        or section.academic_year.level != expected_level
+    ]
+    if invalid_sections:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Sections do not match the subject department/semester: "
+                + ", ".join(sorted(invalid_sections))
+            ),
+        )
+    return normalized_ids
+
+
+def _ensure_assignment_does_not_overlap(
+    db: Session,
+    faculty_id: int,
+    subject_id: int,
+    section_ids: Optional[List[int]],
+    exclude_assignment_id: Optional[int] = None,
+) -> None:
+    query = db.query(models.FacultySubjectAssignment).filter(
+        models.FacultySubjectAssignment.faculty_id == faculty_id,
+        models.FacultySubjectAssignment.subject_id == subject_id,
+    )
+    if exclude_assignment_id is not None:
+        query = query.filter(models.FacultySubjectAssignment.id != exclude_assignment_id)
+    existing_assignments = query.all()
+    if not existing_assignments:
+        return
+
+    if section_ids is None or any(not assignment.section_ids for assignment in existing_assignments):
+        raise HTTPException(
+            status_code=400,
+            detail="Duplicate assignment: this subject already has an all-sections assignment.",
+        )
+
+    existing_sections = {
+        section_id
+        for assignment in existing_assignments
+        for section_id in (assignment.section_ids or [])
+    }
+    duplicates = [section_id for section_id in section_ids if section_id in existing_sections]
+    if duplicates:
+        section_names = db.query(models.Section.name).filter(models.Section.id.in_(duplicates)).all()
+        names = ", ".join(name for (name,) in section_names) or ", ".join(map(str, duplicates))
+        raise HTTPException(
+            status_code=400,
+            detail=f"Duplicate assignment: Section(s) '{names}' already assigned.",
+        )
+
+
+@router.post("/faculty/{faculty_id}/assignments", response_model=schemas.FacultySubjectAssignment)
+def create_faculty_assignment(
+    faculty_id: int,
+    payload: schemas.FacultySubjectAssignmentCreate,
+    db: Session = Depends(database.get_db)
+):
+    # 1. Verify Faculty Exists
+    faculty = db.query(models.Faculty).filter(models.Faculty.id == faculty_id).first()
+    if not faculty:
+        raise HTTPException(status_code=404, detail="Faculty not found")
+
+    # 2. Verify Subject Exists
+    subject = db.query(models.Subject).filter(models.Subject.id == payload.subject_id).first()
+    if not subject:
+        raise HTTPException(status_code=404, detail="Subject not found")
+
+    section_ids = _validate_assignment_sections(db, subject, payload.section_ids)
+    _ensure_assignment_does_not_overlap(db, faculty_id, payload.subject_id, section_ids)
+
+    # 4. Create assignment
+    db_assignment = models.FacultySubjectAssignment(
+        faculty_id=faculty_id,
+        subject_id=payload.subject_id,
+        preference_level=payload.preference_level,
+        section_ids=section_ids
+    )
+    db.add(db_assignment)
+    db.flush()
+    assignment_id = db_assignment.id
+    db.commit()
+    return _faculty_assignment_query(db, faculty_id).filter(
+        models.FacultySubjectAssignment.id == assignment_id
+    ).first()
+
+
+@router.put("/faculty/{faculty_id}/assignments/{assignment_id}", response_model=schemas.FacultySubjectAssignment)
+def update_faculty_assignment(
+    faculty_id: int,
+    assignment_id: int,
+    payload: schemas.FacultySubjectAssignmentCreate,
+    db: Session = Depends(database.get_db)
+):
+    db_assignment = db.query(models.FacultySubjectAssignment).filter(
+        models.FacultySubjectAssignment.id == assignment_id,
+        models.FacultySubjectAssignment.faculty_id == faculty_id
+    ).first()
+    if not db_assignment:
+        raise HTTPException(status_code=404, detail="Assignment not found")
+
+    subject = db.query(models.Subject).filter(models.Subject.id == payload.subject_id).first()
+    if not subject:
+        raise HTTPException(status_code=404, detail="Subject not found")
+    section_ids = _validate_assignment_sections(db, subject, payload.section_ids)
+    _ensure_assignment_does_not_overlap(
+        db,
+        faculty_id,
+        payload.subject_id,
+        section_ids,
+        exclude_assignment_id=assignment_id,
+    )
+
+    db_assignment.subject_id = payload.subject_id
+    db_assignment.section_ids = section_ids
+    db_assignment.preference_level = payload.preference_level
+    db.commit()
+    return _faculty_assignment_query(db, faculty_id).filter(
+        models.FacultySubjectAssignment.id == assignment_id
+    ).first()
+
+
+@router.delete("/faculty/{faculty_id}/assignments/{assignment_id}")
+def delete_faculty_assignment(faculty_id: int, assignment_id: int, db: Session = Depends(database.get_db)):
+    db_assignment = db.query(models.FacultySubjectAssignment).filter(
+        models.FacultySubjectAssignment.id == assignment_id,
+        models.FacultySubjectAssignment.faculty_id == faculty_id
+    ).first()
+    if not db_assignment:
+        raise HTTPException(status_code=404, detail="Assignment not found")
+    db.delete(db_assignment)
+    db.commit()
+    return {"message": "Assignment deleted"}

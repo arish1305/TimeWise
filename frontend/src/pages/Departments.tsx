@@ -520,7 +520,7 @@ const Departments = () => {
                                                 <h4 style={{ margin: 0, color: 'var(--primary-700)', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                                                     <BookOpen size={18} /> Curriculum (Subjects)
                                                 </h4>
-                <button className="btn" style={{ fontSize: '0.8rem', padding: '0.2rem 0.6rem' }} onClick={() => {
+                                                <button className="btn" style={{ fontSize: '0.8rem', padding: '0.2rem 0.6rem' }} onClick={() => {
                                                     setEditingSubjectId(null);
                                                     setNewSubject({
                                                         name: '',
@@ -604,7 +604,7 @@ const Departments = () => {
                                                             />
                                                         </div>
                                                     </div>
-                                                    
+
                                                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1.5rem', alignItems: 'center', padding: '0.75rem', background: '#f8fafc', borderRadius: '6px' }}>
                                                         <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.9rem', fontWeight: 600 }}>
                                                             <input type="checkbox" checked={newSubject.is_elective} onChange={e => setNewSubject({ ...newSubject, is_elective: e.target.checked })} />
@@ -651,7 +651,7 @@ const Departments = () => {
                                                             )}
                                                         </div>
                                                     </div>
-                                                    
+
                                                     {/* Other Departments Select */}
                                                     <div style={{ display: 'flex', flexDirection: 'column', width: '100%', marginTop: '0.5rem' }}>
                                                         <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '4px' }}>Available Config: Offered to Other Departments</label>

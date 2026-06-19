@@ -62,6 +62,11 @@
   --radius-md: 0.5rem;
   --radius-lg: 1rem;
   --radius-xl: 1.5rem;
+
+  /* Semantic Theme Variables */
+  --primary-color: var(--primary-600);
+  --secondary-color: #d946ef;
+  --background-color: var(--secondary-50);
 }
 
 body {

@@ -1,0 +1,761 @@
+import { useState, useEffect } from 'react';
+import { RefreshCw, ChevronDown, Users, Filter, X, Check, Trash2, Download } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import api from '../api/axios';
+import '../styles/Timetables.css';
+import { downloadAllTimetablesPdf } from '../utils/pdfExport';
+import { downloadAllTimetablesWord } from '../utils/wordExport';
+import AppLogo from '../components/AppLogo';
+import { formatTime12Hour } from '../utils/timeFormat';
+
+const Timetables = () => {
+    // Data State
+    const [departments, setDepartments] = useState<any[]>([]);
+    const [academicYears, setAcademicYears] = useState<any[]>([]);
+    const [sections, setSections] = useState<any[]>([]);
+    const [timeSlots, setTimeSlots] = useState<any[]>([]);
+
+    // Selection State
+    const [selectedDept, setSelectedDept] = useState('');
+    const [selectedYear, setSelectedYear] = useState('');
+    const [selectedSection, setSelectedSection] = useState('');
+    const [semester, setSemester] = useState(3);
+
+    // Timetable State
+    const [timetable, setTimetable] = useState<any>(null);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const [validation, setValidation] = useState<any>(null);
+
+    // Initial Load
+    useEffect(() => {
+        fetchDepartments();
+        fetchTimeSlots();
+    }, []);
+
+    const fetchDepartments = async () => {
+        try {
+            const res = await api.get('/admin/departments');
+            setDepartments(res.data);
+        } catch (err) {
+            console.error("Error fetching departments", err);
+        }
+    };
+
+    const fetchTimeSlots = async (deptId?: string | number) => {
+        try {
+            const res = await api.get('/admin/timeslots', {
+                params: deptId ? { department_id: deptId } : undefined
+            });
+            const sorted = res.data.sort((a: any, b: any) => a.start_time.localeCompare(b.start_time));
+            setTimeSlots(sorted);
+        } catch (err) {
+            console.error("Error fetching time slots", err);
+        }
+    };
+
+    const handleDeptChange = async (deptId: string) => {
+        setSelectedDept(deptId);
+        setSelectedYear('');
+        setSelectedSection('');
+        setAcademicYears([]);
+        setSections([]);
+        fetchTimeSlots(deptId || undefined);
+
+        if (!deptId) return;
+
+        try {
+            const res = await api.get(`/admin/academic-years?department_id=${deptId}`);
+            setAcademicYears(res.data);
+        } catch (err) {
+            console.error(err);
+        }
+    };
+
+    const handleYearChange = async (yearId: string) => {
+        setSelectedYear(yearId);
+        setSelectedSection('');
+        setSections([]);
+
+        if (!yearId) return;
+
+        try {
+            const res = await api.get(`/admin/sections?year_id=${yearId}`);
+            setSections(res.data);
+        } catch (err) {
+            console.error(err);
+        }
+    };
+
+    const generateTimetable = async () => {
+        if (!selectedSection) {
+            setError("Please select a section.");
+            return;
+        }
+
+        setLoading(true);
+        setError(null);
+        setTimetable(null);
+
+        try {
+            const res = await api.post('/timetables/generate', {
+                section_id: parseInt(selectedSection),
+                semester: Number(semester)
+            });
+            setTimetable(res.data);
+            validateTimetable(res.data.id);
+        } catch (err: any) {
+            console.error(err);
+            setError(err.response?.data?.detail || "Failed to generate timetable.");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const validateTimetable = async (id: number) => {
+        try {
+            const res = await api.post(`/timetables/${id}/validate`);
+            setValidation(res.data);
+        } catch (err) {
+            console.error("Validation failed", err);
+        }
+    };
+
+    // Bulk Generation State
+    const [bulkGenerating, setBulkGenerating] = useState(false);
+    const [bulkResults, setBulkResults] = useState<any>(null);
+
+    // All Timetables State
+    const [allTimetables, setAllTimetables] = useState<any[]>([]);
+    const [showAllTimetables, setShowAllTimetables] = useState(false);
+    const [exportingTimetables, setExportingTimetables] = useState(false);
+    const [exportingTimetablesWord, setExportingTimetablesWord] = useState(false);
+
+    const generateAllTimetables = async () => {
+        if (!window.confirm("This will generate timetables for ALL sections. Existing timetables will be replaced. Continue?")) {
+            return;
+        }
+
+        setBulkGenerating(true);
+        setBulkResults(null);
+        setError(null);
+
+        try {
+            const res = await api.post('/timetables/generate-all');
+            setBulkResults(res.data);
+            // Auto-fetch all timetables after generation
+            fetchAllTimetables();
+        } catch (err: any) {
+            console.error(err);
+            setError(err.response?.data?.detail || "Failed to generate timetables.");
+        } finally {
+            setBulkGenerating(false);
+        }
+    };
+
+    const clearAllTimetables = async () => {
+        if (!window.confirm("Are you sure you want to delete ALL generated timetables? This action cannot be undone.")) return;
+        try {
+            const res = await api.delete('/timetables/clear-all');
+            setTimetable(null);
+            setAllTimetables([]);
+            setBulkResults(null);
+            setValidation(null);
+            setShowAllTimetables(false);
+            alert(res.data?.message || "All timetables have been successfully deleted.");
+        } catch (err: any) {
+            console.error("Failed to clear timetables", err);
+            setError("Failed to clear timetables.");
+        }
+    };
+
+    const fetchAllTimetables = async () => {
+        try {
+            const res = await api.get('/timetables/');
+            setAllTimetables(res.data);
+        } catch (err) {
+            console.error("Failed to fetch timetables", err);
+        }
+    };
+
+    const loadTimetable = async (timetableId: number) => {
+        try {
+            const res = await api.get(`/timetables/${timetableId}`);
+            setTimetable(res.data);
+            if (res.data?.time_slots?.length) {
+                setTimeSlots(res.data.time_slots.sort((a: any, b: any) => a.start_time.localeCompare(b.start_time)));
+            }
+            setBulkResults(null);
+            setShowAllTimetables(false);
+            validateTimetable(res.data.id);
+            window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+        } catch (err) {
+            console.error("Failed to load timetable", err);
+            setError("Failed to load timetable");
+        }
+    };
+
+    const fetchGeneratedTimetableDetails = async () => {
+        const pageSize = 100;
+        let skip = 0;
+        const timetables: any[] = [];
+
+        while (true) {
+            const listRes = await api.get('/timetables/', { params: { skip, limit: pageSize } });
+            const page = listRes.data || [];
+            timetables.push(...page);
+            if (page.length < pageSize) break;
+            skip += pageSize;
+        }
+
+        if (!timetables.length) {
+            throw new Error('No generated timetables found to download.');
+        }
+
+        const detailResponses = await Promise.all(
+            timetables.map((tt: any) => api.get(`/timetables/${tt.id}`))
+        );
+        return detailResponses.map((res) => res.data);
+    };
+
+    const downloadGeneratedTimetablesPdf = async () => {
+        setExportingTimetables(true);
+        setError(null);
+
+        try {
+            await downloadAllTimetablesPdf(await fetchGeneratedTimetableDetails(), timeSlots);
+        } catch (err: any) {
+            console.error('Failed to export timetables', err);
+            setError(err.message || err.response?.data?.detail || 'Failed to download timetable PDF.');
+        } finally {
+            setExportingTimetables(false);
+        }
+    };
+
+    const downloadGeneratedTimetablesWord = async () => {
+        setExportingTimetablesWord(true);
+        setError(null);
+
+        try {
+            downloadAllTimetablesWord(await fetchGeneratedTimetableDetails(), timeSlots);
+        } catch (err: any) {
+            console.error('Failed to export Word timetables', err);
+            setError(err.message || err.response?.data?.detail || 'Failed to download timetable Word document.');
+        } finally {
+            setExportingTimetablesWord(false);
+        }
+    };
+
+    const getTimetableDepartmentName = () =>
+        timetable?.section?.academic_year?.department?.name ||
+        departments.find((d: any) => d.id == selectedDept)?.name ||
+        '-';
+
+    // Grid Rendering Helper
+    const renderGrid = () => {
+        if (!timetable || !timeSlots.length) return null;
+        const displayTimeSlots = timetable.time_slots?.length ? timetable.time_slots : timeSlots;
+
+        const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+
+        const entryMap: Record<number, any[]> = {};
+        timetable.entries.forEach((entry: any) => {
+            if (!entryMap[entry.timeslot_id]) {
+                entryMap[entry.timeslot_id] = [];
+            }
+            entryMap[entry.timeslot_id].push(entry);
+        });
+
+        const uniqueTimes: any[] = [];
+        const seen = new Set();
+        displayTimeSlots.forEach((ts: any) => {
+            const key = `${ts.start_time}-${ts.end_time}`;
+            if (!seen.has(key)) {
+                seen.add(key);
+                uniqueTimes.push({
+                    start: ts.start_time,
+                    end: ts.end_time,
+                    label: ts.label,
+                    is_break: ts.is_break,
+                    id: ts.id
+                });
+            }
+        });
+
+        const formatRange = (start: string, end: string) => {
+            const s = formatTime12Hour(start);
+            const e = formatTime12Hour(end);
+            return `${s} - ${e}`;
+        };
+
+        return (
+            <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="timetable-wrapper"
+            >
+                {/* Header Information */}
+                <div className="timetable-header-info">
+                    <div className="info-item info-item-wide">
+                        <span className="label">Department</span>
+                        <div className="value">{getTimetableDepartmentName()}</div>
+                    </div>
+                    <div className="info-item">
+                        <span className="label">Year</span>
+                        <div className="value">
+                            {timetable?.section?.academic_year?.name ||
+                                academicYears.find((y: any) => y.id == selectedYear)?.name || '-'}
+                        </div>
+                    </div>
+                    <div className="info-item">
+                        <span className="label">Semester</span>
+                        <div className="value">{timetable?.semester || semester || '-'}</div>
+                    </div>
+                    <div className="info-item">
+                        <span className="label">Section</span>
+                        <div className="value">
+                            {timetable?.section?.name ||
+                                sections.find((s: any) => s.id == selectedSection)?.name || '-'}
+                        </div>
+                    </div>
+                </div>
+
+                {/* Validation Summary Card */}
+                {validation && (validation.errors?.length > 0 || validation.warnings?.length > 0) && (
+                    <div className={`validation-card ${validation.status === 'FAIL' ? 'validation-fail' : 'validation-warn'}`}>
+                        <h4 className="validation-title">
+                            {validation.status === 'FAIL' ? '⚠️ Validation Failed (Conflicts Detected)' : 'ℹ️ Validation Warnings (Uneven Distribution)'}
+                        </h4>
+                        <ul className="validation-list">
+                            {validation.errors?.map((e: string, i: number) => <li key={`e-${i}`} className="validation-error">{e}</li>)}
+                            {validation.warnings?.map((w: string, i: number) => <li key={`w-${i}`} className="validation-warning">{w}</li>)}
+                        </ul>
+                    </div>
+                )}
+
+                <div className="timetable-container">
+                    <table className="timetable-grid">
+                        <thead>
+                            <tr>
+                                <th className="header-day">DAY / TIME</th>
+                                {uniqueTimes.map((t, idx) => (
+                                    <th key={idx} className="header-cell">
+                                        <div className="time-range">{formatRange(t.start, t.end)}</div>
+                                    </th>
+                                ))}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {days.map((day, dayIdx) => (
+                                <tr key={day}>
+                                    <td className="day-cell">{day.substring(0, 3).toUpperCase()}</td>
+                                    {uniqueTimes.map((t, timeIdx) => {
+                                        if (t.is_break) {
+                                            if (dayIdx === 0) {
+                                                return (
+                                                    <td key={timeIdx} rowSpan={days.length} className="cell-break">
+                                                        <div className="break-text">{t.label?.toUpperCase() || "BREAK"}</div>
+                                                    </td>
+                                                );
+                                            } else {
+                                                return null;
+                                            }
+                                        }
+
+                                        const slot = displayTimeSlots.find((ts: any) => ts.day === day && ts.start_time === t.start);
+                                        const entries = slot ? entryMap[slot.id] : null;
+                                        const isConflict = slot && validation?.error_slots?.includes(slot.id);
+
+                                        return (
+                                            <td key={timeIdx} className={`timetable-cell ${entries ? 'cell-filled' : 'cell-empty'} ${isConflict ? 'cell-conflict' : ''}`}>
+                                                {entries ? (
+                                                    <div className="cell-content">
+                                                        {entries.map((entry, idx) => (
+                                                            <div key={idx} style={{ 
+                                                                borderBottom: idx < entries.length - 1 ? '1px solid var(--border-light)' : 'none', 
+                                                                paddingBottom: idx < entries.length - 1 ? '4px' : 0, 
+                                                                marginBottom: idx < entries.length - 1 ? '4px' : 0 
+                                                            }}>
+                                                                <div className="subject-code" title={`${entry.subject?.name} - ${entry.faculty?.name || "Unassigned"}`} style={{ fontSize: entries.length > 1 ? '0.75rem' : '0.85rem', fontWeight: 700 }}>
+                                                                    {entry.subject?.code || 'N/A'} {entry.subject?.is_elective && entry.subject.elective_group_id ? `(${entry.subject.elective_group_id})` : ''}
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                ) : (
+                                                    <div className="cell-content"></div>
+                                                )}
+                                            </td>
+                                        );
+                                    })}
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+
+                {/* Faculty Legend */}
+                <div className="faculty-legend card" style={{ marginTop: '2rem', padding: '1.5rem' }}>
+                    <h3 style={{ margin: '0 0 1rem 0', display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '1.1rem' }}>
+                        <Users size={20} color="var(--primary-600)" />
+                        Faculty & Elective Mapping
+                    </h3>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '1rem' }}>
+                        {(() => {
+                            const facultyMap: Record<number, { name: string, subjects: Set<string> }> = {};
+                            timetable.entries.forEach((e: any) => {
+                                if (e.faculty) {
+                                    if (!facultyMap[e.faculty.id]) {
+                                        facultyMap[e.faculty.id] = { name: e.faculty.name, subjects: new Set() };
+                                    }
+                                    const subLabel = e.subject?.is_elective 
+                                        ? `${e.subject.code} (${e.subject.name} - ${e.subject.elective_group_id})` 
+                                        : `${e.subject.code} (${e.subject.name})`;
+                                    facultyMap[e.faculty.id].subjects.add(subLabel);
+                                }
+                            });
+
+                            return Object.values(facultyMap).map((f: any, idx) => (
+                                <div key={idx} style={{ background: '#f8fafc', padding: '0.75rem', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                                    <div style={{ fontWeight: 700, color: 'var(--primary-700)', marginBottom: '4px', fontSize: '0.9rem' }}>{f.name}</div>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                        {Array.from(f.subjects).map((s: any, sIdx) => (
+                                            <div key={sIdx} style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>• {s}</div>
+                                        ))}
+                                    </div>
+                                </div>
+                            ));
+                        })()}
+                    </div>
+                </div>
+            </motion.div>
+        );
+    };
+
+    return (
+        <div className="animate-fade-in page-container">
+            <div style={{ marginBottom: '2.5rem' }}>
+                <h1 style={{ fontSize: '2rem', fontWeight: 800, margin: '0 0 0.5rem 0', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    <AppLogo size={48} />
+                    Timetable Generator
+                </h1>
+                <p style={{ color: 'var(--text-muted)', fontSize: '1.1rem', margin: 0 }}>
+                    Select a target section to generate a conflict-free AI schedule, or batch-generate for all sections.
+                </p>
+            </div>
+
+            {/* Controls Card */}
+            <div className="card controls-card">
+                <div className="controls-grid">
+                    <div className="input-group" style={{ marginBottom: 0 }}>
+                        <label className="input-label">Department</label>
+                        <div className="select-wrapper">
+                            <select
+                                className="input-field"
+                                value={selectedDept}
+                                onChange={(e) => handleDeptChange(e.target.value)}
+                                style={{ width: '100%', boxSizing: 'border-box', appearance: 'none' }}
+                            >
+                                <option value="">Select</option>
+                                {departments.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                            </select>
+                            <ChevronDown className="select-icon" size={16} />
+                        </div>
+                    </div>
+
+                    <div className="input-group" style={{ marginBottom: 0 }}>
+                        <label className="input-label">Year</label>
+                        <div className="select-wrapper">
+                            <select
+                                className="input-field"
+                                value={selectedYear}
+                                onChange={(e) => handleYearChange(e.target.value)}
+                                disabled={!selectedDept}
+                                style={{ width: '100%', boxSizing: 'border-box', appearance: 'none' }}
+                            >
+                                <option value="">Select Year</option>
+                                {academicYears.map((y: any) => <option key={y.id} value={y.id}>{y.name}</option>)}
+                            </select>
+                            <ChevronDown className="select-icon" size={16} />
+                        </div>
+                    </div>
+
+                    <div className="input-group" style={{ marginBottom: 0 }}>
+                        <label className="input-label">Section</label>
+                        <div className="select-wrapper">
+                            <select
+                                className="input-field"
+                                value={selectedSection}
+                                onChange={(e) => setSelectedSection(e.target.value)}
+                                disabled={!selectedYear}
+                                style={{ width: '100%', boxSizing: 'border-box', appearance: 'none' }}
+                            >
+                                <option value="">Select Section</option>
+                                {sections.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                            </select>
+                            <ChevronDown className="select-icon" size={16} />
+                        </div>
+                    </div>
+
+                    <div className="input-group" style={{ marginBottom: 0 }}>
+                        <label className="input-label">Semester</label>
+                        <div className="select-wrapper">
+                            <input
+                                type="number"
+                                className="input-field"
+                                value={semester}
+                                onChange={(e) => setSemester(parseInt(e.target.value))}
+                                min="1" max="8"
+                                placeholder="Enter Semester (1-8)"
+                                style={{ width: '100%', boxSizing: 'border-box' }}
+                            />
+                        </div>
+                    </div>
+
+                    <button
+                        className="btn btn-primary generate-btn"
+                        onClick={generateTimetable}
+                        disabled={loading || !selectedSection}
+                        style={{ height: '42px', marginTop: 'auto' }}
+                    >
+                        {loading ? <RefreshCw className="animate-spin" size={18} /> : <RefreshCw size={18} />}
+                        Generate Standard
+                    </button>
+                </div>
+            </div>
+
+            {/* Bulk Generation / Power Tools Card */}
+            <div className="card bulk-actions-card animate-fade-in delay-100">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+                    <div>
+                        <h3 style={{ margin: '0 0 0.25rem 0', fontSize: '1.1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <Users size={20} color="var(--primary-600)" />
+                            Power Actions
+                        </h3>
+                        <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+                            Automatically generate timetables for ALL sections using available department data. Existing data will be overwritten.
+                        </p>
+                    </div>
+                    <div className="action-buttons">
+                        <button
+                            className="btn btn-gradient"
+                            onClick={generateAllTimetables}
+                            disabled={bulkGenerating}
+                        >
+                            {bulkGenerating ? (
+                                <>
+                                    <RefreshCw className="animate-spin" size={20} />
+                                    Generating All...
+                                </>
+                            ) : (
+                                <>
+                                    <Users size={20} />
+                                    Generate All Timetables
+                                </>
+                            )}
+                        </button>
+
+                        <button
+                            className="btn btn-outline"
+                            onClick={() => {
+                                fetchAllTimetables();
+                                setShowAllTimetables(true);
+                            }}
+                            style={{ background: 'white' }}
+                        >
+                            <Filter size={18} />
+                            View History
+                        </button>
+
+                        <button
+                            className="btn btn-outline"
+                            onClick={downloadGeneratedTimetablesPdf}
+                            disabled={exportingTimetables}
+                            style={{ background: 'white' }}
+                        >
+                            {exportingTimetables ? <RefreshCw className="animate-spin" size={18} /> : <Download size={18} />}
+                            {exportingTimetables ? 'Preparing PDF...' : 'Download All Timetables PDF'}
+                        </button>
+
+                        <button
+                            className="btn btn-outline"
+                            onClick={downloadGeneratedTimetablesWord}
+                            disabled={exportingTimetablesWord}
+                            style={{ background: 'white' }}
+                        >
+                            {exportingTimetablesWord ? <RefreshCw className="animate-spin" size={18} /> : <Download size={18} />}
+                            {exportingTimetablesWord ? 'Preparing Word...' : 'Download All Timetables Word'}
+                        </button>
+                        
+                        <button
+                            className="btn btn-outline"
+                            onClick={clearAllTimetables}
+                            style={{ background: 'white', color: 'var(--danger-600)', borderColor: 'var(--danger-200)' }}
+                        >
+                            <Trash2 size={18} />
+                            Clear All
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            {/* View All Timetables Modal */}
+            <AnimatePresence>
+                {showAllTimetables && (
+                    <div className="modal-overlay" onClick={() => setShowAllTimetables(false)}>
+                        <motion.div
+                            initial={{ scale: 0.9, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            exit={{ scale: 0.9, opacity: 0 }}
+                            className="modal-content card"
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            <div className="modal-header">
+                                <h3>All Generated Timetables</h3>
+                                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                    <button
+                                        className="btn btn-outline"
+                                        style={{ borderColor: 'var(--error-color)', color: 'var(--error-color)', padding: '0.25rem 0.75rem', fontSize: '0.8rem' }}
+                                        onClick={async () => {
+                                            if (window.confirm("Are you sure you want to clear all timetables history?")) {
+                                                try {
+                                                    await api.delete('/timetables/clear-all');
+                                                    setTimetable(null);
+                                                    setAllTimetables([]);
+                                                    setBulkResults(null);
+                                                    setValidation(null);
+                                                } catch (e) { console.error("Failed to clear", e) }
+                                            }
+                                        }}
+                                    >
+                                        <X size={14} style={{ marginRight: '0.25rem' }} /> Clear History
+                                    </button>
+                                    <button className="btn-icon" onClick={() => setShowAllTimetables(false)}>
+                                        <X size={20} />
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className="modal-body">
+                                {allTimetables.length === 0 ? (
+                                    <div className="empty-state">
+                                        <p>No timetables found. Generate timetables first.</p>
+                                    </div>
+                                ) : (
+                                    <div className="timetable-list">
+                                        {allTimetables.map((tt: any) => (
+                                            <div
+                                                key={tt.id}
+                                                className="timetable-list-item"
+                                                onClick={() => loadTimetable(tt.id)}
+                                            >
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+                                                    <div>
+                                                        <div className="item-title">
+                                                            {tt.section?.academic_year?.department?.code ? `${tt.section.academic_year.department.code} - ` : ''}
+                                                            {tt.section?.academic_year?.name || 'Unknown Year'} - Section {tt.section?.name || 'Unknown'}
+                                                        </div>
+                                                        <div className="item-subtitle">
+                                                            {tt.section?.academic_year?.department?.name ? `${tt.section.academic_year.department.name} • ` : ''}
+                                                            Semester {tt.semester} • {tt.entries?.length || 0} classes
+                                                            <span style={{ marginLeft: '8px', padding: '2px 6px', borderRadius: '4px', fontSize: '0.75rem', background: tt.status === 'ACTIVE' ? '#dcfce7' : tt.status === 'ARCHIVED' ? '#f1f5f9' : '#fef9c3', color: tt.status === 'ACTIVE' ? '#166534' : tt.status === 'ARCHIVED' ? '#475569' : '#854d0e' }}>
+                                                                {tt.status}
+                                                            </span>
+                                                        </div>
+                                                        {tt.created_at && (
+                                                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                                                                Generated on: {new Date(tt.created_at).toLocaleString([], { hour: 'numeric', minute: '2-digit', hour12: true })} (v{tt.version || 1})
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                    <div className="item-action">
+                                                        View →
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        </motion.div>
+                    </div>
+                )}
+            </AnimatePresence>
+
+            {/* Bulk Results Summary */}
+            {bulkResults && (
+                <motion.div
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="card result-card"
+                >
+                    <h3 className="result-title">
+                        <Check size={24} className="success-icon" />
+                        Bulk Generation Complete
+                    </h3>
+
+                    <div className="result-stats">
+                        <div className="stat-item">
+                            <div className="stat-value primary">{bulkResults.total}</div>
+                            <div className="stat-label">Total Sections</div>
+                        </div>
+                        <div className="stat-item bg-success">
+                            <div className="stat-value success">{bulkResults.generated}</div>
+                            <div className="stat-label">Generated</div>
+                        </div>
+                        <div className="stat-item bg-error">
+                            <div className="stat-value error">{bulkResults.failed}</div>
+                            <div className="stat-label">Failed</div>
+                        </div>
+                    </div>
+
+                    {bulkResults.timetables && bulkResults.timetables.length > 0 && (
+                        <div className="generated-list">
+                            <h4>Generated Timetables:</h4>
+                            <div className="list-container">
+                                {bulkResults.timetables.map((tt: any, idx: number) => (
+                                    <div
+                                        key={idx}
+                                        className="generated-item"
+                                        onClick={() => loadTimetable(tt.timetable_id)}
+                                    >
+                                        ✅ {tt.year} - Section {tt.section_name}
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </motion.div>
+            )}
+
+            {error && (
+                <div className="error-banner">
+                    <div className="error-dot"></div>
+                    {error}
+                </div>
+            )}
+
+            {/* Timetable View */}
+            <AnimatePresence mode='wait'>
+                {timetable ? (
+                    renderGrid()
+                ) : (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="card empty-placeholder"
+                    >
+                        <div className="icon-circle">
+                            <AppLogo size={64} />
+                        </div>
+                        <h3 style={{ margin: '0 0 0.5rem 0', color: 'var(--text-primary)' }}>No Timetable Active</h3>
+                        <p style={{ margin: 0 }}>Configure parameters above and click generate to view the schedule.</p>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+        </div>
+    );
+};
+
+export default Timetables;

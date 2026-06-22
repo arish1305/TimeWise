@@ -169,6 +169,23 @@ const Timetables = () => {
         }
     };
 
+    const deleteTimetable = async (e: React.MouseEvent, timetableId: number) => {
+        e.stopPropagation();
+        if (!window.confirm("Are you sure you want to delete this timetable? This action cannot be undone.")) return;
+        try {
+            await api.delete(`/timetables/${timetableId}`);
+            if (timetable && timetable.id === timetableId) {
+                setTimetable(null);
+                setValidation(null);
+            }
+            fetchAllTimetables();
+        } catch (err: any) {
+            console.error("Failed to delete timetable", err);
+            alert(err.response?.data?.detail || "Failed to delete timetable.");
+        }
+    };
+
+
     const fetchAllTimetables = async () => {
         try {
             const res = await api.get('/timetables/');
@@ -668,8 +685,36 @@ const Timetables = () => {
                                                             </div>
                                                         )}
                                                     </div>
-                                                    <div className="item-action">
-                                                        View →
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
+                                                        <div className="item-action">
+                                                            View →
+                                                        </div>
+                                                        <button
+                                                            style={{
+                                                                color: '#dc2626',
+                                                                padding: '6px',
+                                                                borderRadius: '6px',
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                justifyContent: 'center',
+                                                                border: '1px solid rgba(220, 38, 38, 0.2)',
+                                                                background: 'rgba(220, 38, 38, 0.05)',
+                                                                cursor: 'pointer',
+                                                                transition: 'all 0.2s'
+                                                            }}
+                                                            onClick={(e) => deleteTimetable(e, tt.id)}
+                                                            onMouseEnter={(e) => {
+                                                                e.currentTarget.style.background = 'rgba(220, 38, 38, 0.1)';
+                                                                e.currentTarget.style.borderColor = 'rgba(220, 38, 38, 0.4)';
+                                                            }}
+                                                            onMouseLeave={(e) => {
+                                                                e.currentTarget.style.background = 'rgba(220, 38, 38, 0.05)';
+                                                                e.currentTarget.style.borderColor = 'rgba(220, 38, 38, 0.2)';
+                                                            }}
+                                                            title="Delete Timetable"
+                                                        >
+                                                            <Trash2 size={16} />
+                                                        </button>
                                                     </div>
                                                 </div>
                                             </div>

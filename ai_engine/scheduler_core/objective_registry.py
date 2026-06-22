@@ -1,6 +1,7 @@
 from typing import Dict, Any, List, Set
 from ortools.sat.python import cp_model
 import math
+from .faculty_pool import subject_faculty_ids
 
 def parse_time(time_str: str):
     if not time_str:
@@ -50,8 +51,7 @@ def register_objectives(
     # Group subjects by faculty
     faculty_subjects = {}
     for s in subjects:
-        fid = s.get("faculty_id")
-        if fid:
+        for fid in subject_faculty_ids(s):
             faculty_subjects.setdefault(fid, []).append(s["id"])
 
     # Extract rules/overrides
@@ -292,8 +292,7 @@ def evaluate_solution_subscores(
 
     faculty_subjects = {}
     for s in subjects:
-        fid = s.get("faculty_id")
-        if fid:
+        for fid in subject_faculty_ids(s):
             faculty_subjects.setdefault(fid, []).append(s["id"])
 
     spread_points = 0

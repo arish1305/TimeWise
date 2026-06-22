@@ -23,6 +23,7 @@ from routers.timetable import (
     _timetable_signature,
     _section_similarity_score,
     _build_faculty_timetable_payload,
+    load_faculty_commitments,
     validate_timetable_internal,
 )
 
@@ -120,6 +121,55 @@ def test_faculty_timetable_includes_multiple_subjects_for_same_faculty():
     assert {entry["subject_code"] for entry in payload["entries"]} == {"CS201", "CS202"}
     assert {entry["section_name"] for entry in payload["entries"]} == {"A", "B"}
     assert {entry["timetable_status"] for entry in payload["entries"]} == {"DRAFT", "ACTIVE"}
+
+
+def test_shared_faculty_pool_expands_single_entry_to_all_faculty_commitments():
+    db = make_session()
+
+    department = models.Department(name="Computer Science", code="CSP")
+    year = models.AcademicYear(name="Year 2", level=2, department=department)
+    section = models.Section(name="A", academic_year=year)
+    faculty_a = models.Faculty(name="Dr. A", faculty_id_code="POOL-A")
+    faculty_b = models.Faculty(name="Dr. B", faculty_id_code="POOL-B")
+    subject = models.Subject(
+        name="Programming in Java",
+        code="CSJAVA",
+        department=department,
+        semester=3,
+        weekly_hours=1,
+    )
+    slot = models.TimeSlot(day="Monday", start_time=time(9, 0), end_time=time(10, 0))
+    timetable = models.Timetable(section=section, semester=3, status="APPROVED")
+    db.add_all([department, year, section, faculty_a, faculty_b, subject, slot, timetable])
+    db.flush()
+    db.add_all([
+        models.FacultySubjectAssignment(faculty=faculty_a, subject=subject, section_ids=[section.id]),
+        models.FacultySubjectAssignment(faculty=faculty_b, subject=subject, section_ids=[section.id]),
+        models.FacultyAvailability(
+            faculty=faculty_b,
+            timeslot=slot,
+            status=models.FacultyAvailabilityStatus.UNAVAILABLE.value,
+        ),
+        models.TimetableEntry(
+            timetable=timetable,
+            subject=subject,
+            faculty=faculty_a,
+            timeslot=slot,
+        ),
+    ])
+    db.commit()
+
+    commitments = load_faculty_commitments(db, [faculty_a.id, faculty_b.id])
+    faculty_b_payload = _build_faculty_timetable_payload(faculty_b, db)
+    validation = validate_timetable_internal(timetable, db)
+
+    assert commitments == {
+        faculty_a.id: [slot.id],
+        faculty_b.id: [slot.id],
+    }
+    assert len(faculty_b_payload["entries"]) == 1
+    assert faculty_b_payload["entries"][0]["subject_code"] == "CSJAVA"
+    assert any("Dr. B is unavailable" in error for error in validation["errors"])
 
 
 def test_subject_code_can_repeat_across_departments_but_not_within_one_department():

@@ -7,6 +7,7 @@ import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
 from common.combined_class import is_combined_class, is_shared_combined_class
+from .faculty_pool import subject_faculty_ids
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,18 @@ def analyze_capacity(
     
     timeslots_by_id = {t["id"]: t for t in timeslots}
     subjects_by_id = {s["id"]: s for s in subjects}
+
+    def parse_fid(f_id):
+        try:
+            return int(f_id)
+        except (ValueError, TypeError):
+            return f_id
+
+    def parse_slot_id(slot_id):
+        try:
+            return int(slot_id)
+        except (ValueError, TypeError):
+            return slot_id
     
     # 1. Break Timeslots
     break_slots = {t["id"] for t in timeslots if t.get("is_break", False)}
@@ -41,7 +54,9 @@ def analyze_capacity(
     for ls in locked_slots:
         sid = ls.get("subject_id")
         tid = ls.get("timeslot_id")
-        fid = ls.get("faculty_id")
+        faculty_ids = ls.get("faculty_ids")
+        if faculty_ids is None:
+            faculty_ids = [ls.get("faculty_id")]
         
         if tid is not None:
             if tid in break_slots:
@@ -50,8 +65,10 @@ def analyze_capacity(
                 locked_hours_by_subject[sid] = locked_hours_by_subject.get(sid, 0) + 1
                 locked_slots_used.add(tid)
                 locked_slots_by_tid.setdefault(tid, []).append(sid)
-            if fid is not None and sid is not None:
-                locked_slots_for_fac.setdefault(fid, set()).add(tid)
+            if sid is not None:
+                for fid in faculty_ids:
+                    if fid is not None:
+                        locked_slots_for_fac.setdefault(parse_fid(fid), set()).add(tid)
 
     # 3. Required Hours & Demand Validation
     non_elective_subjects = []
@@ -109,18 +126,6 @@ def analyze_capacity(
     faculty_prefs = constraints.get("faculty_preferences", {}) or {}
     prior_commitments = constraints.get("prior_commitments", {}) or {}
     
-    def parse_fid(f_id):
-        try:
-            return int(f_id)
-        except (ValueError, TypeError):
-            return f_id
-
-    def parse_slot_id(slot_id):
-        try:
-            return int(slot_id)
-        except (ValueError, TypeError):
-            return slot_id
-
     prior_commitment_entries = constraints.get("prior_commitment_entries", {}) or {}
     fac_prior_subjects = {}
     fac_prior_section_names = {}
@@ -147,7 +152,7 @@ def analyze_capacity(
             prior_sids = fac_prior_subjects.get(pfid, {}).get(ts_id, [])
             for prior_sid in prior_sids:
                 s = subjects_by_id.get(prior_sid)
-                if s and parse_fid(s.get("faculty_id")) == pfid:
+                if s and pfid in subject_faculty_ids(s):
                     conflict_sec = fac_prior_section_names.get(pfid, {}).get(ts_id, {}).get(prior_sid, "Unknown")
                     
                     # Resolve slot names for logger
@@ -199,12 +204,12 @@ def analyze_capacity(
                 max_hours = prefs.get("max_hours", 18)
             max_hours = int(max_hours or 18)
             
-            assigned_subjects = [s for s in subjects if s.get("faculty_id") == fid]
+            assigned_subjects = [s for s in subjects if pfid in subject_faculty_ids(s)]
             total_assigned_demand = sum(s["_resolved_weekly_hours"] for s in assigned_subjects)
             net_demand_for_fac = sum(s["_net_hours"] for s in assigned_subjects)
             
             prior_slots = fac_prior_slots.get(pfid, set())
-            locked_slots_for_fac_ids = locked_slots_for_fac.get(fid, set())
+            locked_slots_for_fac_ids = locked_slots_for_fac.get(pfid, set())
             
             remaining_capacity = max_hours - len(prior_slots) - len(locked_slots_for_fac_ids)
             total_fac_capacity += max(0, remaining_capacity)

@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Fetch Timewise Data</title>
+</head>
+<body>
+    <div id="status">Starting fetch...</div>
+    <pre id="output"></pre>
+    <script>
+        async function run() {
+            try {
+                // 1. Login
+                document.getElementById('status').innerText = "Logging in...";
+                const loginParams = new URLSearchParams();
+                loginParams.append('username', 'admin');
+                loginParams.append('password', 'admin123');
+                const loginRes = await fetch('http://localhost:8000/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: loginParams
+                });
+                if (!loginRes.ok) throw new Error("Login failed");
+                const tokenData = await loginRes.json();
+                const token = tokenData.access_token;
+                document.getElementById('status').innerText = "Logged in. Fetching data...";
+
+                // Helper to fetch with token
+                async function fetchAPI(endpoint) {
+                    const res = await fetch('http://localhost:8000' + endpoint, {
+                        headers: { 'Authorization': 'Bearer ' + token }
+                    });
+                    if (!res.ok) throw new Error("Fetch failed for " + endpoint);
+                    return await res.json();
+                }
+
+                // 2. Fetch sections
+                const sections = await fetchAPI('/admin/sections');
+                // 3. Fetch departments
+                const departments = await fetchAPI('/admin/departments');
+                // 4. Fetch subjects
+                const subjects = await fetchAPI('/admin/subjects');
+                // 5. Fetch faculty
+                const faculty = await fetchAPI('/admin/faculty');
+                // 6. Fetch timeslots
+                const timeslots = await fetchAPI('/admin/timeslots');
+
+                // 7. Get section 32 details
+                const section32 = sections.find(s => s.id === 32);
+                
+                // Fetch all assignments for all faculty
+                const assignments = [];
+                for (const f of faculty) {
+                    try {
+                        const facAssigns = await fetchAPI('/admin/faculty/' + f.id + '/assignments');
+                        assignments.push({ faculty_id: f.id, name: f.name, assignments: facAssigns });
+                    } catch (e) {
+                        console.error("Failed to fetch assignments for faculty " + f.id, e);
+                    }
+                }
+
+                // Fetch section-subject locks
+                const locks = [];
+                if (section32) {
+                    for (const s of subjects) {
+                        try {
+                            const lock = await fetchAPI('/admin/section-subject-locks/section/32/subject/' + s.id);
+                            locks.push(lock);
+                        } catch (e) {
+                            // 404 if no lock exists
+                        }
+                    }
+                }
+
+                // Compile result
+                const result = {
+                    section32,
+                    sections,
+                    departments,
+                    subjects,
+                    faculty,
+                    timeslots,
+                    assignments,
+                    locks
+                };
+
+                document.getElementById('output').textContent = JSON.stringify(result, null, 2);
+                document.getElementById('status').innerText = "Fetch complete!";
+            } catch (err) {
+                document.getElementById('status').innerText = "Error: " + err.message;
+                console.error(err);
+            }
+        }
+        run();
+    </script>
+</body>
+</html>

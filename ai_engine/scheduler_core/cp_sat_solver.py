@@ -13,6 +13,8 @@ from . import capacity_analyzer
 from . import constraint_statistics
 from . import feasibility_explainer
 from . import slot_utilization_analyzer
+from .deep_diagnostics import DeepDiagnosticAnalyzer
+from .faculty_pool import subject_faculty_ids
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +32,21 @@ class CPSatSolver:
         self.timeslots = timeslots
         self.constraints = constraints or {}
         self.locked_slots = locked_slots or []
+        self._failure_summary_logged = False
+        self.deep_diagnostics = None
+        try:
+            self.deep_diagnostics = DeepDiagnosticAnalyzer(
+                subjects=self.subjects,
+                faculty=self.faculty,
+                timeslots=self.timeslots,
+                constraints=self.constraints,
+                locked_slots=self.locked_slots,
+            )
+            self.deep_diagnostics.log_input_report()
+        except Exception:
+            logger.exception(
+                "Deep diagnostic analysis failed; solver behavior is continuing unchanged."
+            )
         
         # Setup diagnostics folder (at workspace root level or relative path)
         self.diagnostics_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "diagnostics"))
@@ -44,6 +61,7 @@ class CPSatSolver:
                 self.subjects, self.faculty, self.timeslots, self.constraints, self.locked_slots
             )
         except ValueError as e:
+            self._log_failure_summary_once([str(e)])
             # Write IMPOSSIBLE report to diagnostics
             feasibility_path = os.path.join(self.diagnostics_dir, "feasibility_report.json")
             with open(feasibility_path, "w") as f:
@@ -52,6 +70,31 @@ class CPSatSolver:
                     "reason": str(e)
                 }, f, indent=2)
             raise e
+
+    def _log_failure_summary_once(
+        self,
+        core_reasons: Optional[List[str]] = None,
+        seed: Optional[int] = None,
+    ) -> None:
+        if self._failure_summary_logged:
+            return
+        self._failure_summary_logged = True
+        if self.deep_diagnostics is None:
+            logger.error(
+                "CP-SAT failure summary unavailable because read-only diagnostic analysis failed. "
+                "Core reasons: %s",
+                core_reasons or "None",
+            )
+            return
+        try:
+            self.deep_diagnostics.log_failure_summary(
+                core_reasons=core_reasons,
+                seed=seed,
+            )
+        except Exception:
+            logger.exception(
+                "Deep diagnostic failure summary could not be logged; solver behavior is unchanged."
+            )
 
     def get_cbcs_groups(self) -> List[List[int]]:
         groups = {}
@@ -165,7 +208,7 @@ class CPSatSolver:
                 locked,
                 needed,
                 subject.get("continuous_hours", 1),
-                subject.get("faculty_id"),
+                subject_faculty_ids(subject),
                 subject.get("is_elective", False),
                 subject.get("elective_group_id"),
             )
@@ -299,15 +342,22 @@ class CPSatSolver:
         logger.info(f"CP-SAT solve (seed={seed}): status={status_name}, time={solve_duration:.2f}s")
         
         if status == cp_model.INFEASIBLE:
-            logger.warning(f"CP-SAT model is INFEASIBLE (seed={seed}).")
+            logger.warning(
+                "CP-SAT model is INFEASIBLE (seed=%s); generating the detailed constraint failure summary.",
+                seed,
+            )
+            core_reasons = []
             try:
                 report = feasibility_explainer.explain_feasibility(
                     self.subjects, self.faculty, self.timeslots, self.constraints, self.locked_slots, is_feasible=False
                 )
+                core_reasons = report.get("reasons", [])
                 with open(os.path.join(self.diagnostics_dir, "feasibility_report.json"), "w") as f:
                     json.dump(report, f, indent=2)
             except Exception as ex:
                 logger.error(f"Failed to generate feasibility report: {ex}")
+                core_reasons = [f"Feasibility report generation failed: {ex}"]
+            self._log_failure_summary_once(core_reasons, seed)
             return None
         
         if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):

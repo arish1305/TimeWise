@@ -223,6 +223,67 @@ def test_faculty_unavailable_slot_is_hard_constraint():
     assert schedule == [{"subject_id": 1, "faculty_id": 10, "timeslot_id": 2}]
 
 
+def test_shared_faculty_pool_uses_one_entry_and_checks_every_faculty():
+    timeslots = [
+        {"id": 1, "day": "Monday", "time": "09:00:00", "end_time": "10:00:00", "is_break": False},
+        {"id": 2, "day": "Monday", "time": "10:00:00", "end_time": "11:00:00", "is_break": False},
+    ]
+    subjects = [
+        {
+            "id": 1,
+            "name": "Programming in Java",
+            "weekly_hours": 1,
+            "faculty_ids": [10, 11],
+            "is_elective": False,
+        }
+    ]
+    faculty = [
+        {"id": 10, "name": "Dr. A"},
+        {"id": 11, "name": "Dr. B"},
+    ]
+    constraints = {
+        "random_seed": 42,
+        "faculty_availability": {
+            10: {"preferred_slots": [], "unavailable_slots": []},
+            11: {"preferred_slots": [], "unavailable_slots": [1]},
+        },
+    }
+
+    schedule = CPSatSolver(subjects, faculty, timeslots, constraints).solve()
+
+    assert schedule == [{
+        "subject_id": 1,
+        "faculty_id": 10,
+        "faculty_ids": [10, 11],
+        "timeslot_id": 2,
+    }]
+
+
+def test_shared_faculty_pool_respects_secondary_faculty_commitment():
+    timeslots = [
+        {"id": 1, "day": "Monday", "time": "09:00:00", "end_time": "10:00:00", "is_break": False},
+        {"id": 2, "day": "Tuesday", "time": "09:00:00", "end_time": "10:00:00", "is_break": False},
+    ]
+    subjects = [{
+        "id": 1,
+        "name": "Programming in Java",
+        "weekly_hours": 1,
+        "faculty_ids": [10, 11],
+        "is_elective": False,
+    }]
+    faculty = [{"id": 10, "name": "Dr. A"}, {"id": 11, "name": "Dr. B"}]
+    constraints = {
+        "random_seed": 42,
+        "prior_commitments": {11: [1]},
+        "prior_commitment_entries": {11: [{"timeslot_id": 1, "subject_id": 99}]},
+    }
+
+    schedule = CPSatSolver(subjects, faculty, timeslots, constraints).solve()
+
+    assert schedule[0]["timeslot_id"] == 2
+    assert len(schedule) == 1
+
+
 def test_approved_commitment_slot_is_hard_constraint():
     timeslots = [
         {"id": 1, "day": "Monday", "time": "09:00:00", "end_time": "10:00:00", "is_break": False},
@@ -724,6 +785,5 @@ def test_new_validation_scenarios():
         is_different_section=False  # same section
     )
     assert res_6 is False
-
 
 

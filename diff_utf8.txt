@@ -1,0 +1,343 @@
+﻿diff --git a/frontend/src/pages/AdminFacultyTimetable.tsx b/frontend/src/pages/AdminFacultyTimetable.tsx
+index fe17611..e8c0d73 100644
+--- a/frontend/src/pages/AdminFacultyTimetable.tsx
++++ b/frontend/src/pages/AdminFacultyTimetable.tsx
+@@ -179,7 +179,7 @@ const AdminFacultyTimetable = () => {
+                             className="input-field"
+                             value={facultyName}
+                             onChange={(e) => setFacultyName(e.target.value)}
+-                            placeholder="Enter faculty name"
++                            placeholder="Enter faculty name (e.g. Dr. Jane Doe)"
+                         />
+                     </div>
+                     <div className="input-group" style={{ marginBottom: 0 }}>
+@@ -188,7 +188,7 @@ const AdminFacultyTimetable = () => {
+                             className="input-field"
+                             value={facultyIdCode}
+                             onChange={(e) => setFacultyIdCode(e.target.value)}
+-                            placeholder="Enter faculty id code"
++                            placeholder="Enter faculty ID code (e.g. FAC001)"
+                         />
+                     </div>
+                     <div className="input-group" style={{ marginBottom: 0 }}>
+diff --git a/frontend/src/pages/Departments.tsx b/frontend/src/pages/Departments.tsx
+index 942f0e0..df43a47 100644
+--- a/frontend/src/pages/Departments.tsx
++++ b/frontend/src/pages/Departments.tsx
+@@ -324,11 +324,19 @@ const Departments = () => {
+                         className="card" style={{ marginBottom: '2rem', borderLeft: '4px solid var(--primary-500)' }}
+                     >
+                         <h3>{editingDeptId ? 'Edit Department' : 'New Department'}</h3>
+-                        <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
+-                            <input className="input-field" placeholder="Name (e.g. Computer Science)" value={newDept.name} onChange={e => setNewDept({ ...newDept, name: e.target.value })} />
+-                            <input className="input-field" placeholder="Code (e.g. CSE)" value={newDept.code} onChange={e => setNewDept({ ...newDept, code: e.target.value })} />
+-                            <button className="btn btn-primary" onClick={saveDept}>Save</button>
+-                            <button className="btn" onClick={() => { setShowDeptForm(false); setEditingDeptId(null); }}>Cancel</button>
++                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', marginTop: '1rem', alignItems: 'flex-end' }}>
++                            <div className="input-group" style={{ marginBottom: 0, flex: 2, minWidth: '200px' }}>
++                                <label className="input-label">Department Name</label>
++                                <input className="input-field" placeholder="Enter department name (e.g. Computer Science)" value={newDept.name} onChange={e => setNewDept({ ...newDept, name: e.target.value })} style={{ width: '100%' }} />
++                            </div>
++                            <div className="input-group" style={{ marginBottom: 0, flex: 1, minWidth: '120px' }}>
++                                <label className="input-label">Department Code</label>
++                                <input className="input-field" placeholder="Enter department code (e.g. CSE)" value={newDept.code} onChange={e => setNewDept({ ...newDept, code: e.target.value })} style={{ width: '100%' }} />
++                            </div>
++                            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: 0, height: '42px', alignItems: 'center' }}>
++                                <button className="btn btn-primary" onClick={saveDept}>Save</button>
++                                <button className="btn" onClick={() => { setShowDeptForm(false); setEditingDeptId(null); }}>Cancel</button>
++                            </div>
+                         </div>
+                     </motion.div>
+                 )}
+@@ -470,44 +478,62 @@ const Departments = () => {
+                                             </div>
+ 
+                                             {showSubjectForm === dept.id && (
+-                                                <div className="input-group" style={{ flexDirection: 'row', alignItems: 'center', background: 'white', padding: '1rem', borderRadius: '8px', border: '1px solid var(--primary-200)', marginBottom: '1rem', flexWrap: 'wrap' }}>
+-                                                    <input className="input-field" placeholder="Subject Name" value={newSubject.name} onChange={e => setNewSubject({ ...newSubject, name: e.target.value })} style={{ flex: 1, minWidth: 150 }} />
+-                                                    <input className="input-field" placeholder="Code (CS101)" value={newSubject.code} onChange={e => setNewSubject({ ...newSubject, code: e.target.value })} style={{ width: 100 }} />
+-                                                    <input type="number" className="input-field" placeholder="Sem" value={isNaN(newSubject.semester) ? '' : newSubject.semester} onChange={e => setNewSubject({ ...newSubject, semester: parseInt(e.target.value) })} style={{ width: 60 }} />
+-                                                    <input type="number" className="input-field" placeholder="Hrs/Wk" value={isNaN(newSubject.weekly_hours) ? '' : newSubject.weekly_hours} onChange={e => {
+-                                                        const weeklyHours = parseInt(e.target.value);
+-                                                        setNewSubject({
+-                                                            ...newSubject,
+-                                                            weekly_hours: weeklyHours,
+-                                                            continuous_hours: Math.min(newSubject.continuous_hours || 1, weeklyHours || 1)
+-                                                        });
+-                                                    }} style={{ width: 80 }} />
+-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+-                                                        <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Back-to-back</label>
+-                                                        <input
+-                                                            type="number"
+-                                                            className="input-field"
+-                                                            min="1"
+-                                                            max={Math.max(newSubject.weekly_hours || 1, 1)}
+-                                                            value={isNaN(newSubject.continuous_hours) ? '' : newSubject.continuous_hours}
+-                                                            onChange={e => {
+-                                                                const value = parseInt(e.target.value);
++                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', background: 'white', padding: '1.5rem', borderRadius: '8px', border: '1px solid var(--primary-200)', marginBottom: '1.5rem' }}>
++                                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'flex-end' }}>
++                                                        <div className="input-group" style={{ marginBottom: 0, flex: 2, minWidth: '200px' }}>
++                                                            <label className="input-label">Subject Name</label>
++                                                            <input className="input-field" placeholder="Enter subject name (e.g. Database Systems)" value={newSubject.name} onChange={e => setNewSubject({ ...newSubject, name: e.target.value })} style={{ width: '100%' }} />
++                                                        </div>
++                                                        <div className="input-group" style={{ marginBottom: 0, flex: 1, minWidth: '120px' }}>
++                                                            <label className="input-label">Subject Code</label>
++                                                            <input className="input-field" placeholder="Enter code (e.g. CS101)" value={newSubject.code} onChange={e => setNewSubject({ ...newSubject, code: e.target.value })} style={{ width: '100%' }} />
++                                                        </div>
++                                                        <div className="input-group" style={{ marginBottom: 0, width: '80px' }}>
++                                                            <label className="input-label">Semester</label>
++                                                            <input type="number" className="input-field" placeholder="Semester" value={isNaN(newSubject.semester) ? '' : newSubject.semester} onChange={e => setNewSubject({ ...newSubject, semester: parseInt(e.target.value) })} style={{ width: '100%' }} />
++                                                        </div>
++                                                        <div className="input-group" style={{ marginBottom: 0, width: '100px' }}>
++                                                            <label className="input-label">Weekly Hours</label>
++                                                            <input type="number" className="input-field" placeholder="Hours" value={isNaN(newSubject.weekly_hours) ? '' : newSubject.weekly_hours} onChange={e => {
++                                                                const weeklyHours = parseInt(e.target.value);
+                                                                 setNewSubject({
+                                                                     ...newSubject,
+-                                                                    continuous_hours: Math.min(Math.max(value || 1, 1), newSubject.weekly_hours || 1)
++                                                                    weekly_hours: weeklyHours,
++                                                                    continuous_hours: Math.min(newSubject.continuous_hours || 1, weeklyHours || 1)
+                                                                 });
+-                                                            }}
+-                                                            style={{ width: 74 }}
+-                                                        />
++                                                            }} style={{ width: '100%' }} />
++                                                        </div>
++                                                        <div className="input-group" style={{ marginBottom: 0, width: '110px' }}>
++                                                            <label className="input-label">Back-to-back Hrs</label>
++                                                            <input
++                                                                type="number"
++                                                                className="input-field"
++                                                                min="1"
++                                                                max={Math.max(newSubject.weekly_hours || 1, 1)}
++                                                                value={isNaN(newSubject.continuous_hours) ? '' : newSubject.continuous_hours}
++                                                                onChange={e => {
++                                                                    const value = parseInt(e.target.value);
++                                                                    setNewSubject({
++                                                                        ...newSubject,
++                                                                        continuous_hours: Math.min(Math.max(value || 1, 1), newSubject.weekly_hours || 1)
++                                                                    });
++                                                                }}
++                                                                placeholder="Max contiguous"
++                                                                style={{ width: '100%' }}
++                                                            />
++                                                        </div>
+                                                     </div>
+                                                     
+-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginLeft: '0.5rem' }}>
+-                                                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.9rem' }}>
++                                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1.5rem', alignItems: 'center', padding: '0.75rem', background: '#f8fafc', borderRadius: '6px' }}>
++                                                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.9rem', fontWeight: 600 }}>
+                                                             <input type="checkbox" checked={newSubject.is_elective} onChange={e => setNewSubject({ ...newSubject, is_elective: e.target.checked })} />
+                                                             Elective
+                                                         </label>
+                                                         {newSubject.is_elective && (
+-                                                            <input className="input-field" placeholder="Group ID (PE1)" value={newSubject.elective_group_id} onChange={e => setNewSubject({ ...newSubject, elective_group_id: e.target.value })} style={{ width: 100 }} />
++                                                            <div className="input-group" style={{ marginBottom: 0, width: '180px' }}>
++                                                                <label className="input-label" style={{ fontSize: '0.8rem' }}>Elective Group ID</label>
++                                                                <input className="input-field" placeholder="Enter group ID (e.g. PE1)" value={newSubject.elective_group_id} onChange={e => setNewSubject({ ...newSubject, elective_group_id: e.target.value })} style={{ width: '100%', padding: '0.4rem 0.75rem', fontSize: '0.875rem' }} />
++                                                            </div>
+                                                         )}
+                                                     </div>
+                                                     <div style={{ display: 'flex', flexDirection: 'column', width: '100%', marginTop: '0.5rem' }}>
+@@ -650,11 +676,19 @@ const Departments = () => {
+                                             </div>
+ 
+                                             {showYearForm === dept.id && (
+-                                                <div className="input-group" style={{ flexDirection: 'row', alignItems: 'center' }}>
+-                                                    <input className="input-field" placeholder="Year Name" value={newYear.name} onChange={e => setNewYear({ ...newYear, name: e.target.value })} />
+-                                                    <input type="number" className="input-field" placeholder="Level" value={isNaN(newYear.level) ? '' : newYear.level} onChange={e => setNewYear({ ...newYear, level: parseInt(e.target.value) })} style={{ width: 80 }} />
+-                                                    <button className="btn btn-primary" onClick={() => saveYear(dept.id)}>Save</button>
+-                                                    <button className="btn" onClick={() => { setShowYearForm(null); setEditingYearId(null); }}>Cancel</button>
++                                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'flex-end', background: 'white', padding: '1rem', borderRadius: '8px', border: '1px solid var(--border-color)', marginBottom: '1rem' }}>
++                                                    <div className="input-group" style={{ marginBottom: 0, flex: 2, minWidth: '150px' }}>
++                                                        <label className="input-label">Academic Year Name</label>
++                                                        <input className="input-field" placeholder="Enter year name (e.g. First Year)" value={newYear.name} onChange={e => setNewYear({ ...newYear, name: e.target.value })} style={{ width: '100%' }} />
++                                                    </div>
++                                                    <div className="input-group" style={{ marginBottom: 0, width: '100px' }}>
++                                                        <label className="input-label">Year Level</label>
++                                                        <input type="number" className="input-field" placeholder="Level (1-4)" value={isNaN(newYear.level) ? '' : newYear.level} onChange={e => setNewYear({ ...newYear, level: parseInt(e.target.value) })} style={{ width: '100%' }} />
++                                                    </div>
++                                                    <div style={{ display: 'flex', gap: '0.5rem', height: '42px', alignItems: 'center' }}>
++                                                        <button className="btn btn-primary" onClick={() => saveYear(dept.id)}>Save</button>
++                                                        <button className="btn" onClick={() => { setShowYearForm(null); setEditingYearId(null); }}>Cancel</button>
++                                                    </div>
+                                                 </div>
+                                             )}
+ 
+@@ -696,11 +730,19 @@ const Departments = () => {
+                                                             </div>
+ 
+                                                             {showSectionForm === year.id && (
+-                                                                <div className="input-group" style={{ flexDirection: 'row', alignItems: 'center', marginBottom: '0.5rem' }}>
+-                                                                    <input className="input-field" placeholder="Sec Name (A)" value={newSection.name} onChange={e => setNewSection({ ...newSection, name: e.target.value })} style={{ width: 100 }} />
+-                                                                    <input type="number" className="input-field" placeholder="Count" value={isNaN(newSection.student_count) ? '' : newSection.student_count} onChange={e => setNewSection({ ...newSection, student_count: parseInt(e.target.value) })} style={{ width: 80 }} />
+-                                                                    <button className="btn btn-primary" style={{ padding: '0.2rem 0.5rem' }} onClick={() => saveSection(year.id, dept.id)}>Save</button>
+-                                                                    <button className="btn" style={{ padding: '0.2rem 0.5rem' }} onClick={() => { setShowSectionForm(null); setEditingSectionId(null); }}>Cancel</button>
++                                                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'flex-end', background: '#f1f5f9', padding: '0.75rem', borderRadius: '6px', marginBottom: '0.5rem' }}>
++                                                                    <div className="input-group" style={{ marginBottom: 0, width: '130px' }}>
++                                                                        <label className="input-label" style={{ fontSize: '0.75rem' }}>Section Name</label>
++                                                                        <input className="input-field" placeholder="Enter section (e.g. A)" value={newSection.name} onChange={e => setNewSection({ ...newSection, name: e.target.value })} style={{ width: '100%', padding: '0.5rem 0.75rem', fontSize: '0.85rem' }} />
++                                                                    </div>
++                                                                    <div className="input-group" style={{ marginBottom: 0, width: '110px' }}>
++                                                                        <label className="input-label" style={{ fontSize: '0.75rem' }}>Student Count</label>
++                                                                        <input type="number" className="input-field" placeholder="Student count (e.g. 60)" value={isNaN(newSection.student_count) ? '' : newSection.student_count} onChange={e => setNewSection({ ...newSection, student_count: parseInt(e.target.value) })} style={{ width: '100%', padding: '0.5rem 0.75rem', fontSize: '0.85rem' }} />
++                                                                    </div>
++                                                                    <div style={{ display: 'flex', gap: '0.4rem', height: '34px', alignItems: 'center' }}>
++                                                                        <button className="btn btn-primary" style={{ padding: '0.25rem 0.75rem', minHeight: 'unset', height: '34px' }} onClick={() => saveSection(year.id, dept.id)}>Save</button>
++                                                                        <button className="btn" style={{ padding: '0.25rem 0.75rem', minHeight: 'unset', height: '34px' }} onClick={() => { setShowSectionForm(null); setEditingSectionId(null); }}>Cancel</button>
++                                                                    </div>
+                                                                 </div>
+                                                             )}
+ 
+diff --git a/frontend/src/pages/Faculty.tsx b/frontend/src/pages/Faculty.tsx
+index 255a19d..48d5330 100644
+--- a/frontend/src/pages/Faculty.tsx
++++ b/frontend/src/pages/Faculty.tsx
+@@ -461,6 +461,7 @@ const FacultyManager = () => {
+                         </div>
+ 
+                         <div style={{ marginTop: '1.5rem', padding: '1rem', border: '1px solid var(--border-color)', borderRadius: '8px', background: 'var(--background-color)' }}>
++                            <label className="input-label" style={{ marginBottom: '0.5rem', display: 'block' }}>Upload Faculty File (CSV or Excel)</label>
+                             <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                                 <input
+                                     type="file"
+@@ -500,11 +501,11 @@ const FacultyManager = () => {
+                                     }}>
+                                         <div className="input-group" style={{ marginBottom: 0 }}>
+                                             <label className="input-label">Name</label>
+-                                            <input className="input-field" value={row.name} onChange={e => updateBulkRow(index, 'name', e.target.value)} />
++                                            <input className="input-field" placeholder="Enter faculty name" value={row.name} onChange={e => updateBulkRow(index, 'name', e.target.value)} />
+                                         </div>
+                                         <div className="input-group" style={{ marginBottom: 0 }}>
+                                             <label className="input-label">ID Code</label>
+-                                            <input className="input-field" value={row.faculty_id_code} onChange={e => updateBulkRow(index, 'faculty_id_code', e.target.value)} />
++                                            <input className="input-field" placeholder="Enter ID code" value={row.faculty_id_code} onChange={e => updateBulkRow(index, 'faculty_id_code', e.target.value)} />
+                                         </div>
+                                         <div className="input-group" style={{ marginBottom: 0 }}>
+                                             <label className="input-label">Designation</label>
+@@ -517,15 +518,15 @@ const FacultyManager = () => {
+                                         </div>
+                                         <div className="input-group" style={{ marginBottom: 0 }}>
+                                             <label className="input-label">Min</label>
+-                                            <input type="number" className="input-field" value={row.min_hours_per_week} onChange={e => updateBulkRow(index, 'min_hours_per_week', parseInt(e.target.value) || 0)} />
++                                            <input type="number" className="input-field" placeholder="Min load" value={row.min_hours_per_week} onChange={e => updateBulkRow(index, 'min_hours_per_week', parseInt(e.target.value) || 0)} />
+                                         </div>
+                                         <div className="input-group" style={{ marginBottom: 0 }}>
+                                             <label className="input-label">Max</label>
+-                                            <input type="number" className="input-field" value={row.max_hours_per_week} onChange={e => updateBulkRow(index, 'max_hours_per_week', parseInt(e.target.value) || 0)} />
++                                            <input type="number" className="input-field" placeholder="Max load" value={row.max_hours_per_week} onChange={e => updateBulkRow(index, 'max_hours_per_week', parseInt(e.target.value) || 0)} />
+                                         </div>
+                                         <div className="input-group" style={{ marginBottom: 0 }}>
+                                             <label className="input-label">Department Codes</label>
+-                                            <input className="input-field" placeholder="CSE,ECE" value={row.department_codes} onChange={e => updateBulkRow(index, 'department_codes', e.target.value)} />
++                                            <input className="input-field" placeholder="Enter department codes (e.g. CSE, ECE)" value={row.department_codes} onChange={e => updateBulkRow(index, 'department_codes', e.target.value)} />
+                                         </div>
+                                         <button className="btn" style={{ padding: '0.65rem', color: 'var(--error-color)' }} onClick={() => removeBulkRow(index)} title="Remove row">
+                                             <Trash2 size={16} />
+@@ -558,11 +559,11 @@ const FacultyManager = () => {
+                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginTop: '1rem' }}>
+                             <div className="input-group">
+                                 <label className="input-label">Full Name</label>
+-                                <input className="input-field" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} placeholder="e.g. Dr. Jane Doe" />
++                                <input className="input-field" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} placeholder="Enter full name (e.g. Dr. Jane Doe)" />
+                             </div>
+                             <div className="input-group">
+                                 <label className="input-label">Faculty ID Code</label>
+-                                <input className="input-field" value={formData.faculty_id_code} onChange={e => setFormData({ ...formData, faculty_id_code: e.target.value })} placeholder="e.g. FAC001" />
++                                <input className="input-field" value={formData.faculty_id_code} onChange={e => setFormData({ ...formData, faculty_id_code: e.target.value })} placeholder="Enter faculty ID code (e.g. FAC001)" />
+                             </div>
+ 
+                             <div className="input-group">
+@@ -578,11 +579,11 @@ const FacultyManager = () => {
+                             <div style={{ display: 'flex', gap: '1rem' }}>
+                                 <div className="input-group" style={{ flex: 1 }}>
+                                     <label className="input-label">Min Hours/Week</label>
+-                                    <input type="number" className="input-field" value={formData.min_hours_per_week} onChange={e => setFormData({ ...formData, min_hours_per_week: parseInt(e.target.value) })} />
++                                    <input type="number" className="input-field" placeholder="Enter min load (e.g. 5)" value={formData.min_hours_per_week} onChange={e => setFormData({ ...formData, min_hours_per_week: parseInt(e.target.value) })} />
+                                 </div>
+                                 <div className="input-group" style={{ flex: 1 }}>
+                                     <label className="input-label">Max Hours/Week</label>
+-                                    <input type="number" className="input-field" value={formData.max_hours_per_week} onChange={e => setFormData({ ...formData, max_hours_per_week: parseInt(e.target.value) })} />
++                                    <input type="number" className="input-field" placeholder="Enter max load (e.g. 18)" value={formData.max_hours_per_week} onChange={e => setFormData({ ...formData, max_hours_per_week: parseInt(e.target.value) })} />
+                                 </div>
+                             </div>
+ 
+diff --git a/frontend/src/pages/Login.tsx b/frontend/src/pages/Login.tsx
+index 21de97a..a8e7e41 100644
+--- a/frontend/src/pages/Login.tsx
++++ b/frontend/src/pages/Login.tsx
+@@ -60,7 +60,7 @@ const Login = () => {
+                                 className="input-field"
+                                 value={username}
+                                 onChange={(e) => setUsername(e.target.value)}
+-                                placeholder="admin or faculty id"
++                                placeholder="Enter your username or faculty ID (e.g. FAC001)"
+                                 style={{ width: '100%', boxSizing: 'border-box', paddingLeft: '2.7rem' }}
+                             />
+                         </div>
+@@ -75,7 +75,7 @@ const Login = () => {
+                                 className="input-field"
+                                 value={password}
+                                 onChange={(e) => setPassword(e.target.value)}
+-                                placeholder="enter password"
++                                placeholder="Enter your password"
+                                 style={{ width: '100%', boxSizing: 'border-box', paddingLeft: '2.7rem' }}
+                             />
+                         </div>
+diff --git a/frontend/src/pages/TimeSlots.tsx b/frontend/src/pages/TimeSlots.tsx
+index d9603a0..8ae87c7 100644
+--- a/frontend/src/pages/TimeSlots.tsx
++++ b/frontend/src/pages/TimeSlots.tsx
+@@ -122,7 +122,7 @@ const TimeSlots = () => {
+                             </div>
+                             <div>
+                                 <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Label (Optional)</label>
+-                                <input className="input-field" placeholder="e.g. Lunch" value={newSlot.label} onChange={e => setNewSlot({ ...newSlot, label: e.target.value })} style={{ width: '100%' }} />
++                                <input className="input-field" placeholder="Enter label (e.g. Coffee Break / Lunch)" value={newSlot.label} onChange={e => setNewSlot({ ...newSlot, label: e.target.value })} style={{ width: '100%' }} />
+                             </div>
+                             <div style={{ paddingBottom: '0.8rem' }}>
+                                 <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+diff --git a/frontend/src/pages/Timetables.tsx b/frontend/src/pages/Timetables.tsx
+index e44dd0b..afa85ac 100644
+--- a/frontend/src/pages/Timetables.tsx
++++ b/frontend/src/pages/Timetables.tsx
+@@ -506,6 +506,7 @@ const Timetables = () => {
+                                 value={semester}
+                                 onChange={(e) => setSemester(parseInt(e.target.value))}
+                                 min="1" max="8"
++                                placeholder="Enter Semester (1-8)"
+                                 style={{ width: '100%', boxSizing: 'border-box' }}
+                             />
+                         </div>
+diff --git a/frontend/src/pages/VisualTimetables.tsx b/frontend/src/pages/VisualTimetables.tsx
+index 324f05a..f31a7b9 100644
+--- a/frontend/src/pages/VisualTimetables.tsx
++++ b/frontend/src/pages/VisualTimetables.tsx
+@@ -1038,10 +1038,11 @@ const VisualTimetables = () => {
+                         <div className="panel-search-box">
+                             <Search className="search-icon" size={14} />
+                             <input 
+-                                placeholder={viewMode === 'faculty' ? "Search faculty..." : "Search timetables..."}
++                                placeholder={viewMode === 'faculty' ? "Type to search faculty..." : "Type to search timetables..."}
+                                 value={sidebarSearch}
+                                 onChange={e => setSidebarSearch(e.target.value)}
+                                 className="search-input"
++                                aria-label="Search"
+                             />
+                         </div>
+ 
+@@ -1161,10 +1162,11 @@ const VisualTimetables = () => {
+                             <Filter className="search-icon" size={14} />
+                             <input 
+                                 type="text" 
+-                                placeholder="Highlight by Code/Faculty/Room..."
++                                placeholder="Enter Subject Code, Faculty, or Room..."
+                                 value={searchQuery}
+                                 onChange={e => setSearchQuery(e.target.value)}
+                                 className="search-input"
++                                aria-label="Highlighter filter"
+                             />
+                         </div>
+                     </div>

@@ -1,5 +1,6 @@
 import logging
 from typing import List, Dict, Any
+from .faculty_pool import subject_faculty_ids
 
 logger = logging.getLogger(__name__)
 
@@ -56,8 +57,7 @@ def calculate_complexity(
     # 3. Faculty Constraints
     faculty_subjects = {}
     for s in subjects:
-        fid = s.get("faculty_id")
-        if fid:
+        for fid in subject_faculty_ids(s):
             faculty_subjects.setdefault(fid, []).append(s["id"])
             
     prior_commitments = constraints.get("prior_commitments", {}) or {}

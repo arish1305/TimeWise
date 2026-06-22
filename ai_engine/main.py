@@ -11,9 +11,13 @@ except (ImportError, ValueError):
     try:
         from .scheduler_core.cp_sat_solver import CPSatSolver
         from .scheduler_core import candidate_diversity, health_metrics, explainability
+        from .scheduler_core.faculty_pool import subject_faculty_ids
     except (ImportError, ValueError):
         from ai_engine.scheduler_core.cp_sat_solver import CPSatSolver
         from ai_engine.scheduler_core import candidate_diversity, health_metrics, explainability
+        from ai_engine.scheduler_core.faculty_pool import subject_faculty_ids
+else:
+    from scheduler_core.faculty_pool import subject_faculty_ids
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -235,7 +239,13 @@ def optimize_schedule(request: OptimizationRequest):
         scheduled_slots = {
             _parse_slot_id(entry.get("timeslot_id"))
             for entry in best_candidate["schedule"]
-            if entry.get("faculty_id") == fid
+            if _parse_fid(fid) in (
+                entry.get("faculty_ids")
+                or subject_faculty_ids(next(
+                    (subject for subject in request.subjects if subject.get("id") == entry.get("subject_id")),
+                    {},
+                ))
+            )
         }
         preferred_slots = _slot_set_for(faculty_availability, fid, "preferred_slots")
         unavailable_slots = _slot_set_for(faculty_availability, fid, "unavailable_slots")

@@ -1,5 +1,6 @@
 from typing import List, Dict, Any
 from ortools.sat.python import cp_model
+from .faculty_pool import subject_faculty_ids
 
 def decode_schedule(
     solver: cp_model.CpSolver,
@@ -15,15 +16,19 @@ def decode_schedule(
     
     for s in subjects:
         sid = s["id"]
-        fid = s.get("faculty_id")
+        faculty_ids = subject_faculty_ids(s)
+        fid = faculty_ids[0] if faculty_ids else None
         
         for t in timeslots:
             tid = t["id"]
             if solver.Value(x[sid][tid]) == 1:
-                schedule.append({
+                entry = {
                     "subject_id": sid,
                     "faculty_id": fid,
                     "timeslot_id": tid
-                })
+                }
+                if len(faculty_ids) > 1:
+                    entry["faculty_ids"] = faculty_ids
+                schedule.append(entry)
                 
     return schedule

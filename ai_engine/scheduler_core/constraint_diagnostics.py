@@ -1,6 +1,7 @@
 import logging
 from typing import List, Dict, Any, Optional
 from ortools.sat.python import cp_model
+from .faculty_pool import subject_faculty_ids
 
 logger = logging.getLogger(__name__)
 
@@ -66,8 +67,7 @@ def diagnose_infeasibility(
     # Group subjects by faculty
     faculty_subjects = {}
     for s in subjects:
-        fid = s.get("faculty_id")
-        if fid:
+        for fid in subject_faculty_ids(s):
             faculty_subjects.setdefault(fid, []).append(s["id"])
 
     # 3. Locked Slots

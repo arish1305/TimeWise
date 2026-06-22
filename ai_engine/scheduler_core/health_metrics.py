@@ -1,5 +1,6 @@
 import math
 from typing import List, Dict, Any
+from .faculty_pool import subject_faculty_ids
 
 def calculate_health_metrics(
     schedule: List[Dict[str, Any]], 
@@ -27,8 +28,10 @@ def calculate_health_metrics(
     # Group hours by faculty
     faculty_hours = {}
     for entry in schedule:
-        fid = entry.get("faculty_id")
-        if fid:
+        faculty_ids = entry.get("faculty_ids") or subject_faculty_ids(
+            subject_by_id.get(entry.get("subject_id"), {})
+        )
+        for fid in faculty_ids:
             faculty_hours[fid] = faculty_hours.get(fid, 0) + 1
             
     faculty_prefs = constraints.get("faculty_preferences", {}) or {}

@@ -56,3 +56,48 @@ scratch_debug.py
 
 # Diagnostics & Reports
 diagnostics/
+
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+
+# Node
+node_modules/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+
+# Environment
+.env
+.env.*
+
+# Logs
+*.log
+logs/
+frontend_logs.txt
+
+# Temporary
+scratch_*.py
+diff.txt
+diff_utf8.txt
+
+# Testing
+coverage/
+htmlcov/
+
+# Diagnostics
+diagnostics/
+debug/
+reports/
+
+# OS
+.DS_Store
+Thumbs.db
+
+.pnpm-store/
